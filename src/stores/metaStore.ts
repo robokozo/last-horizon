@@ -5,9 +5,9 @@ import { computed } from 'vue'
 import type { RunResult } from '@/game/types'
 import {
   ROOT_NODE_ID,
-  SKILL_NODES,
   SKILL_NODES_BY_ID,
   listAdjacentNodeIds,
+  scaledNodeCost,
 } from '@/skills/skillTree'
 
 interface LifetimeStats {
@@ -28,6 +28,15 @@ export const useMetaStore = defineStore('meta', () => {
   const stardust = useLocalStorage<number>('pd-stardust', 0)
   const unlockedNodeIds = useLocalStorage<Array<string>>('pd-unlocked-nodes', [ROOT_NODE_ID])
   const lifetime = useLocalStorage<LifetimeStats>('pd-lifetime', { ...DEFAULT_LIFETIME_STATS })
+  // what the tree actually cost so resets refund exactly that — saves from
+  // before paragon cost scaling paid flat base costs, hence the default
+  const treeSpent = useLocalStorage<number>(
+    'pd-tree-spent',
+    unlockedNodeIds.value.reduce(
+      (sum, nodeId) => sum + (SKILL_NODES_BY_ID.get(nodeId)?.cost ?? 0),
+      0,
+    ),
+  )
 
   // saves from before a tree redesign reference node ids that no longer
   // exist: reset the tree and refund everything ever earned
@@ -37,9 +46,22 @@ export const useMetaStore = defineStore('meta', () => {
   if (hasUnknownNode === true) {
     unlockedNodeIds.value = [ROOT_NODE_ID]
     stardust.value = lifetime.value.totalStardustEarned
+    treeSpent.value = 0
   }
 
   const unlockedNodeIdSet = computed(() => new Set(unlockedNodeIds.value))
+
+  /** points bought so far (the free root doesn't count) — drives cost scaling */
+  const paragonLevel = computed(() => Math.max(0, unlockedNodeIds.value.length - 1))
+
+  /** what a node costs right now, at the current paragon level */
+  function nodeCostOf({ nodeId }: { nodeId: string }): number {
+    const node = SKILL_NODES_BY_ID.get(nodeId)
+    if (node === undefined) {
+      return 0
+    }
+    return scaledNodeCost({ baseCost: node.cost, paragonLevel: paragonLevel.value })
+  }
 
   const availableNodeIdSet = computed(() => {
     const available = new Set<string>()
@@ -64,31 +86,23 @@ export const useMetaStore = defineStore('meta', () => {
     if (availableNodeIdSet.value.has(nodeId) === false) {
       return false
     }
-    return stardust.value >= node.cost
+    return stardust.value >= nodeCostOf({ nodeId })
   }
 
   function unlockNode({ nodeId }: { nodeId: string }): boolean {
     if (canUnlockNode({ nodeId }) === false) {
       return false
     }
-    const node = SKILL_NODES_BY_ID.get(nodeId)
-    if (node === undefined) {
-      return false
-    }
-    stardust.value -= node.cost
+    const cost = nodeCostOf({ nodeId })
+    stardust.value -= cost
+    treeSpent.value += cost
     unlockedNodeIds.value = [...unlockedNodeIds.value, nodeId]
     return true
   }
 
   function resetTree(): void {
-    const refund = unlockedNodeIds.value.reduce((sum, nodeId) => {
-      const node = SKILL_NODES_BY_ID.get(nodeId)
-      if (node === undefined) {
-        return sum
-      }
-      return sum + node.cost
-    }, 0)
-    stardust.value += refund
+    stardust.value += treeSpent.value
+    treeSpent.value = 0
     unlockedNodeIds.value = [ROOT_NODE_ID]
   }
 
@@ -96,6 +110,7 @@ export const useMetaStore = defineStore('meta', () => {
   function resetAllProgress(): void {
     stardust.value = 0
     unlockedNodeIds.value = [ROOT_NODE_ID]
+    treeSpent.value = 0
     lifetime.value = { ...DEFAULT_LIFETIME_STATS }
   }
 
@@ -105,6 +120,7 @@ export const useMetaStore = defineStore('meta', () => {
       version: 1,
       stardust: stardust.value,
       unlockedNodeIds: unlockedNodeIds.value,
+      treeSpent: treeSpent.value,
       lifetime: lifetime.value,
     }
     return btoa(JSON.stringify(payload))
@@ -116,6 +132,7 @@ export const useMetaStore = defineStore('meta', () => {
         version?: number
         stardust?: number
         unlockedNodeIds?: Array<string>
+        treeSpent?: number
         lifetime?: LifetimeStats
       }
       if (
@@ -133,6 +150,14 @@ export const useMetaStore = defineStore('meta', () => {
       if (unlockedNodeIds.value.includes(ROOT_NODE_ID) === false) {
         unlockedNodeIds.value = [ROOT_NODE_ID, ...unlockedNodeIds.value]
       }
+      // codes from before paragon cost scaling carry no spend — assume flat base costs
+      treeSpent.value =
+        typeof payload.treeSpent === 'number'
+          ? payload.treeSpent
+          : unlockedNodeIds.value.reduce(
+              (sum, nodeId) => sum + (SKILL_NODES_BY_ID.get(nodeId)?.cost ?? 0),
+              0,
+            )
       lifetime.value = {
         runs: Number(payload.lifetime.runs ?? 0),
         kills: Number(payload.lifetime.kills ?? 0),
@@ -155,14 +180,7 @@ export const useMetaStore = defineStore('meta', () => {
     }
   }
 
-  const totalSpentOnTree = computed(() =>
-    SKILL_NODES.reduce((sum, node) => {
-      if (unlockedNodeIdSet.value.has(node.id) === true) {
-        return sum + node.cost
-      }
-      return sum
-    }, 0),
-  )
+  const totalSpentOnTree = computed(() => treeSpent.value)
 
   return {
     stardust,
@@ -170,6 +188,8 @@ export const useMetaStore = defineStore('meta', () => {
     lifetime,
     unlockedNodeIdSet,
     availableNodeIdSet,
+    paragonLevel,
+    nodeCostOf,
     totalSpentOnTree,
     canUnlockNode,
     unlockNode,

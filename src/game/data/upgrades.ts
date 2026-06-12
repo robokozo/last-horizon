@@ -385,45 +385,54 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
   },
 ]
 
+/** the stardust cache's payout grows with the wave it is banked on */
+export function fillerStardustReward({ wave }: { wave: number }): number {
+  return Math.round(FILLER_REWARDS.stardustBase + FILLER_REWARDS.stardustPerWave * wave)
+}
+
+const FILLER_IDS = ['filler-stardust', 'filler-repair', 'filler-overcharge'] as const
+
 /**
  * Consolation picks padded into the offer when the real pool can't fill it —
  * always repeatable, applied by the scene rather than via stat stacks.
  */
-export const FILLER_CHOICES: Array<UpgradeChoice> = [
-  {
-    id: 'filler-stardust',
-    name: 'Stardust Cache',
-    description: `Salvage crews sweep the battlefield: bank +${FILLER_REWARDS.stardust} stardust for this run immediately`,
-    rarity: 'common',
-    category: 'tactic',
-    currentStacks: 0,
-    maxStacks: 0,
-    synergyOf: null,
-  },
-  {
-    id: 'filler-repair',
-    name: 'Field Repairs',
-    description: `Work crews shore up the city: restore ${FILLER_REWARDS.repairIntegrity} integrity now`,
-    rarity: 'common',
-    category: 'tactic',
-    currentStacks: 0,
-    maxStacks: 0,
-    synergyOf: null,
-  },
-  {
-    id: 'filler-overcharge',
-    name: 'Ammo Overcharge',
-    description: `Hotter propellant in every magazine: +${FILLER_REWARDS.damagePercent}% damage for the rest of the run`,
-    rarity: 'common',
-    category: 'tactic',
-    currentStacks: 0,
-    maxStacks: 0,
-    synergyOf: null,
-  },
-]
+export function buildFillerChoices({ wave }: { wave: number }): Array<UpgradeChoice> {
+  return [
+    {
+      id: 'filler-stardust',
+      name: 'Stardust Cache',
+      description: `Salvage crews sweep the battlefield: bank +${fillerStardustReward({ wave })} stardust for this run immediately`,
+      rarity: 'common',
+      category: 'tactic',
+      currentStacks: 0,
+      maxStacks: 0,
+      synergyOf: null,
+    },
+    {
+      id: 'filler-repair',
+      name: 'Field Repairs',
+      description: `Work crews shore up the city: restore ${FILLER_REWARDS.repairIntegrity} integrity now`,
+      rarity: 'common',
+      category: 'tactic',
+      currentStacks: 0,
+      maxStacks: 0,
+      synergyOf: null,
+    },
+    {
+      id: 'filler-overcharge',
+      name: 'Ammo Overcharge',
+      description: `Hotter propellant in every magazine: +${FILLER_REWARDS.damagePercent}% damage for the rest of the run`,
+      rarity: 'common',
+      category: 'tactic',
+      currentStacks: 0,
+      maxStacks: 0,
+      synergyOf: null,
+    },
+  ]
+}
 
 export function isFillerUpgradeId({ upgradeId }: { upgradeId: string }): boolean {
-  return FILLER_CHOICES.some((choice) => choice.id === upgradeId)
+  return FILLER_IDS.some((fillerId) => fillerId === upgradeId)
 }
 
 /** "Tesla Arc ★2 + Cloud Cover ★2" for synergy tactics, null for everything else */
@@ -555,11 +564,11 @@ export function rollUpgradeChoices({
   }))
 
   // the pool ran dry (everything maxed or gated) — pad with consolation picks
-  for (const filler of FILLER_CHOICES) {
+  for (const filler of buildFillerChoices({ wave })) {
     if (choices.length >= count) {
       break
     }
-    choices.push({ ...filler })
+    choices.push(filler)
   }
   return choices
 }

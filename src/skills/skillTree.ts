@@ -604,6 +604,23 @@ export const SKILL_EDGES: Array<[string, string]> = SKILL_NODES.flatMap((node) =
   node.connections.map((targetId): [string, string] => [node.id, targetId]),
 )
 
+// ── paragon level ─────────────────────────────────────────────────────
+// Every point bought raises the price of all future nodes, so the tree
+// gets grindier the deeper you are without touching stardust income.
+
+/** +5% on every node's base cost per point already bought */
+export const PARAGON_COST_GROWTH_PER_LEVEL = 0.05
+
+export function scaledNodeCost({
+  baseCost,
+  paragonLevel,
+}: {
+  baseCost: number
+  paragonLevel: number
+}): number {
+  return Math.ceil(baseCost * (1 + PARAGON_COST_GROWTH_PER_LEVEL * paragonLevel))
+}
+
 export function listAdjacentNodeIds({ nodeId }: { nodeId: string }): Array<string> {
   const adjacent = new Set<string>()
   for (const [fromId, toId] of SKILL_EDGES) {

@@ -369,7 +369,9 @@ export const CLOUD = {
 
 /** generic consolation cards offered when the real card pool runs dry */
 export const FILLER_REWARDS = {
-  stardust: 30,
+  /** stardust cache pays base + perWave × current wave, so late-run picks stay worth taking */
+  stardustBase: 5,
+  stardustPerWave: 1,
   repairIntegrity: 25,
   damagePercent: 5,
 } as const

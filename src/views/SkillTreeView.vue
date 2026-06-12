@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 
 import {
+  PARAGON_COST_GROWTH_PER_LEVEL,
   SKILL_EDGES,
   SKILL_NODES,
   SKILL_NODES_BY_ID,
@@ -11,6 +12,9 @@ import {
 import { useMetaStore } from '@/stores/metaStore'
 
 const metaStore = useMetaStore()
+
+/** how much pricier every node is at the current paragon level */
+const costMultiplier = computed(() => 1 + PARAGON_COST_GROWTH_PER_LEVEL * metaStore.paragonLevel)
 
 const VIEW_BASE_WIDTH = 1500
 const VIEW_BASE_HEIGHT = 1000
@@ -104,6 +108,14 @@ const selectedNodeState = computed<NodeState | null>(() => {
   return stateOf({ nodeId: selectedNodeId.value })
 })
 
+/** the selected node's price at the current paragon level */
+const selectedNodeCost = computed<number>(() => {
+  if (selectedNode.value === null) {
+    return 0
+  }
+  return metaStore.nodeCostOf({ nodeId: selectedNode.value.id })
+})
+
 const unlockBlockReason = computed<string | null>(() => {
   if (selectedNode.value === null || selectedNodeState.value === null) {
     return null
@@ -114,8 +126,8 @@ const unlockBlockReason = computed<string | null>(() => {
   if (selectedNodeState.value === 'locked') {
     return 'Connect an adjacent node first'
   }
-  if (metaStore.stardust < selectedNode.value.cost) {
-    return `Need ${selectedNode.value.cost - Math.floor(metaStore.stardust)} more stardust`
+  if (metaStore.stardust < selectedNodeCost.value) {
+    return `Need ${selectedNodeCost.value - Math.floor(metaStore.stardust)} more stardust`
   }
   return null
 })
@@ -270,6 +282,13 @@ function nodeOpacity({ node }: { node: SkillNode }): number {
       </div>
       <div class="flex items-center gap-4">
         <span
+          class="flex items-center gap-2 rounded-full border border-fuchsia-400/30 bg-fuchsia-400/10 px-4 py-1.5 text-sm font-bold text-fuchsia-300"
+          :title="`Every point bought raises node prices — currently ×${costMultiplier.toFixed(2)}`"
+        >
+          Paragon {{ metaStore.paragonLevel }}
+          <span class="font-semibold text-fuchsia-400/70">×{{ costMultiplier.toFixed(2) }}</span>
+        </span>
+        <span
           class="flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-1.5 font-bold text-amber-300"
         >
           ✦ {{ Math.floor(metaStore.stardust) }}
@@ -368,7 +387,7 @@ function nodeOpacity({ node }: { node: SkillNode }): number {
         <p class="mt-1.5 text-sm text-slate-300">{{ hoveredNode.description }}</p>
         <div class="mt-2 flex items-center justify-between text-xs">
           <span v-if="hoveredNode.cost > 0" class="font-semibold text-amber-300">
-            ✦ {{ hoveredNode.cost }}
+            ✦ {{ metaStore.nodeCostOf({ nodeId: hoveredNode.id }) }}
           </span>
           <span
             :class="{
@@ -404,7 +423,10 @@ function nodeOpacity({ node }: { node: SkillNode }): number {
         </div>
         <p class="text-sm text-slate-300">{{ selectedNode.description }}</p>
         <p v-if="selectedNode.cost > 0" class="text-sm font-semibold text-amber-300">
-          Cost: ✦ {{ selectedNode.cost }}
+          Cost: ✦ {{ selectedNodeCost }}
+          <span v-if="selectedNodeCost > selectedNode.cost" class="text-amber-300/60">
+            (base {{ selectedNode.cost }})
+          </span>
         </p>
         <button
           v-if="selectedNodeState !== 'unlocked'"

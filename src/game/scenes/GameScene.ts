@@ -41,6 +41,7 @@ import {
 } from '@/game/data/enemies'
 import {
   countOwnedWeapons,
+  fillerStardustReward,
   findUpgradeDefinition,
   isFillerUpgradeId,
   rollUpgradeChoices,
@@ -4141,7 +4142,7 @@ export class GameScene extends Phaser.Scene {
 
   private applyFillerUpgrade({ upgradeId }: { upgradeId: string }): void {
     if (upgradeId === 'filler-stardust') {
-      this.bonusStardust += FILLER_REWARDS.stardust
+      this.bonusStardust += fillerStardustReward({ wave: this.wave })
       return
     }
     if (upgradeId === 'filler-repair') {
