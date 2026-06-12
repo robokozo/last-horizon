@@ -359,8 +359,6 @@ export class GameScene extends Phaser.Scene {
   private waveAccumulatorMs = 0
   private regenAccumulatorMs = 0
   private airstrikeAccumulatorMs = 0
-  private bfgAccumulatorMs = 0
-  private lanceAccumulatorMs = 0
   private orbitalAccumulatorMs = 0
   private stormAccumulatorMs = 0
   private aegisAccumulatorMs = 0
@@ -677,8 +675,6 @@ export class GameScene extends Phaser.Scene {
     this.elapsedMs = 0
     this.damageBySource = new Map()
     this.airstrikeAccumulatorMs = 0
-    this.bfgAccumulatorMs = 0
-    this.lanceAccumulatorMs = 0
     this.orbitalAccumulatorMs = 0
     this.stormAccumulatorMs = 0
     this.aegisAccumulatorMs = 0
@@ -822,8 +818,7 @@ export class GameScene extends Phaser.Scene {
     this.moveStasisMissiles({ delta })
     this.moveRockets({ delta })
     this.updateAirstrike({ delta })
-    this.updateBfg({ delta })
-    this.updateThermalLance({ delta })
+    this.updateLanceSweeps({ delta })
     this.updateMines({ delta })
     this.updateOrbitalLaser({ delta })
     this.updateStormFront({ delta })
@@ -2197,6 +2192,12 @@ export class GameScene extends Phaser.Scene {
     if (this.stats.railgunLevel > 0) {
       weaponIds.push('railgun')
     }
+    if (this.stats.bfgLevel > 0) {
+      weaponIds.push('bfg')
+    }
+    if (this.stats.lanceLevel > 0) {
+      weaponIds.push('lance')
+    }
     return weaponIds.sort((a, b) => a.localeCompare(b))
   }
 
@@ -2341,6 +2342,12 @@ export class GameScene extends Phaser.Scene {
     }
     if (weaponId === 'railgun') {
       return this.fireRailgun({ cannon })
+    }
+    if (weaponId === 'bfg') {
+      return this.fireBfg({ cannon })
+    }
+    if (weaponId === 'lance') {
+      return this.fireLance({ cannon })
     }
     return false
   }
@@ -2851,28 +2858,16 @@ export class GameScene extends Phaser.Scene {
 
   // ── bfg ────────────────────────────────────────────────────────────
 
-  private updateBfg({ delta }: { delta: number }): void {
-    if (this.stats.bfgLevel <= 0) {
-      return
-    }
-    this.bfgAccumulatorMs += delta
-    const interval = this.weaponIntervalMs({ weaponId: 'bfg' })
-    if (this.bfgAccumulatorMs < interval) {
-      return
-    }
+  /** each gun charges and dumps its own screen-wide discharge */
+  private fireBfg({ cannon }: { cannon: CannonUnit }): boolean {
     const hasEnemies = this.enemies.some((enemy) => enemy.isDead === false)
     if (hasEnemies === false) {
-      this.bfgAccumulatorMs = interval
-      return
+      return false
     }
-    this.bfgAccumulatorMs = 0
     soundEngine.play({ name: 'bfg' })
 
     const level = this.stats.bfgLevel
-    const mainCannon = this.cannons[0]
-    const orb = this.add
-      .circle(mainCannon.x, mainCannon.y - 24, 6, 0x4ade80, 0.95)
-      .setDepth(DEPTHS.effects)
+    const orb = this.add.circle(cannon.x, cannon.y - 24, 6, 0x4ade80, 0.95).setDepth(DEPTHS.effects)
     this.tweens.add({
       targets: orb,
       radius: 30 + 10 * (level - 1),
@@ -2913,43 +2908,37 @@ export class GameScene extends Phaser.Scene {
       this.damageEnemy({ enemy, amount: bfgDamage, source: 'bfg' })
     }
 
-    // capacitor dump synergy: the discharge sets off a boosted nova on every cannon
+    // capacitor dump synergy: the discharge sets off a boosted nova on the firing cannon
     if (this.stats.capdumpLevel > 0) {
       const novaMultiplier =
         SYNERGIES.capdump.novaDamageMultBase +
         SYNERGIES.capdump.novaDamageMultPerLevel * (this.stats.capdumpLevel - 1)
-      for (const cannon of this.cannons) {
-        this.fireNova({ cannon, damageMultiplier: novaMultiplier })
-      }
+      this.fireNova({ cannon, damageMultiplier: novaMultiplier })
     }
+    return true
   }
 
   // ── thermal lance ──────────────────────────────────────────────────
 
-  private updateThermalLance({ delta }: { delta: number }): void {
-    if (this.stats.lanceLevel > 0) {
-      this.lanceAccumulatorMs += delta
-      const interval = this.weaponIntervalMs({ weaponId: 'lance' })
-      if (this.lanceAccumulatorMs >= interval) {
-        // the lance only reaches as far as the cannon's targeting range
-        const cannon = this.cannons[0]
-        const rangeSq = this.stats.range ** 2
-        const inRange = this.enemies.filter((enemy) => {
-          if (enemy.isDead === true) {
-            return false
-          }
-          return (enemy.image.x - cannon.x) ** 2 + (enemy.image.y - (cannon.y - 10)) ** 2 <= rangeSq
-        })
-        const target = inRange.length > 0 ? this.findClusterTarget({ pool: inRange }) : null
-        if (target === null) {
-          this.lanceAccumulatorMs = interval
-        } else {
-          this.lanceAccumulatorMs = 0
-          this.fireThermalLance({ target })
-        }
+  /** each gun ignites its own lance at the densest cluster within its reach */
+  private fireLance({ cannon }: { cannon: CannonUnit }): boolean {
+    // the lance only reaches as far as the cannon's targeting range
+    const rangeSq = this.stats.range ** 2
+    const inRange = this.enemies.filter((enemy) => {
+      if (enemy.isDead === true) {
+        return false
       }
+      return (enemy.image.x - cannon.x) ** 2 + (enemy.image.y - (cannon.y - 10)) ** 2 <= rangeSq
+    })
+    const target = inRange.length > 0 ? this.findClusterTarget({ pool: inRange }) : null
+    if (target === null) {
+      return false
     }
+    this.fireThermalLance({ cannon, target })
+    return true
+  }
 
+  private updateLanceSweeps({ delta }: { delta: number }): void {
     const seconds = delta / 1_000
     for (const sweep of this.sweeps) {
       if (sweep.isDead === true) {
@@ -2995,11 +2984,10 @@ export class GameScene extends Phaser.Scene {
     this.sweeps = this.sweeps.filter((sweep) => sweep.isDead === false)
   }
 
-  /** ignite the lance at the main cannon, sweeping its arc across the target cluster */
-  private fireThermalLance({ target }: { target: EnemyUnit }): void {
+  /** ignite the lance at the firing cannon, sweeping its arc across the target cluster */
+  private fireThermalLance({ cannon, target }: { cannon: CannonUnit; target: EnemyUnit }): void {
     soundEngine.play({ name: 'lance' })
     const level = this.stats.lanceLevel
-    const cannon = this.cannons[0]
     const originX = cannon.x
     const originY = cannon.y - 10
 
@@ -3651,20 +3639,6 @@ export class GameScene extends Phaser.Scene {
             weaponId: 'airstrike',
             fraction:
               this.airstrikeAccumulatorMs / this.weaponIntervalMs({ weaponId: 'airstrike' }),
-          })
-        }
-        if (this.stats.bfgLevel > 0) {
-          rows.push({
-            key: 'bfg',
-            weaponId: 'bfg',
-            fraction: this.bfgAccumulatorMs / this.weaponIntervalMs({ weaponId: 'bfg' }),
-          })
-        }
-        if (this.stats.lanceLevel > 0) {
-          rows.push({
-            key: 'lance',
-            weaponId: 'lance',
-            fraction: this.lanceAccumulatorMs / this.weaponIntervalMs({ weaponId: 'lance' }),
           })
         }
         if (this.stats.orbitalLaserLevel > 0) {

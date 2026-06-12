@@ -36,7 +36,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'bfg',
     name: 'BFG',
     description:
-      'Bolts the BFG onto the main cannon: a very long cooldown blast that devastates every invader on screen (stacks: stronger, faster)',
+      'Bolts a BFG onto every cannon: a very long cooldown blast that devastates every invader on screen (stacks: stronger, faster)',
     rarity: 'legendary',
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
@@ -56,7 +56,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'lance',
     name: 'Thermal Lance',
     description:
-      'An orbital beam sweeps across a stretch of sky, searing the first invader in its path (stacks: wider sweep, stronger, faster)',
+      'Every cannon mounts a lance that sweeps a stretch of sky, searing the first invader in its path (stacks: wider sweep, stronger, faster)',
     rarity: 'epic',
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
