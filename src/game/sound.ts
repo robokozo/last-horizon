@@ -62,6 +62,8 @@ class SoundEngine {
   private lastPlayedMs = new Map<SfxName, number>()
   /** the sandbox fast-forward simulates minutes synchronously — keep it silent */
   private isSuppressed = false
+  /** tab hidden (phone call, app switch) — audio is suspended, separate from the user's mute */
+  private isBackgrounded = false
   private isMuted = localStorage.getItem(MUTE_STORAGE_KEY) === 'true'
   private volumeLevel = Number(localStorage.getItem(VOLUME_STORAGE_KEY) ?? '0.5')
 
@@ -136,8 +138,8 @@ class SoundEngine {
   }
 
   private playMusicBar(): void {
-    // keep the loop ticking while muted; just don't emit the bar
-    if (this.isMuted === true || this.isSuppressed === true) {
+    // keep the loop ticking while muted or backgrounded; just don't emit the bar
+    if (this.isMuted === true || this.isSuppressed === true || this.isBackgrounded === true) {
       return
     }
     const context = this.ensureContext()
@@ -203,8 +205,25 @@ class SoundEngine {
     this.isSuppressed = isSuppressed
   }
 
+  /**
+   * Tab went hidden or came back (phone call, app switch): suspend the whole
+   * context so ringing pad notes stop too, and resume on return. The user's
+   * mute setting is untouched — a muted player stays muted after the call.
+   */
+  setBackgrounded({ isBackgrounded }: { isBackgrounded: boolean }): void {
+    this.isBackgrounded = isBackgrounded
+    if (this.context === null) {
+      return
+    }
+    if (isBackgrounded === true) {
+      void this.context.suspend()
+    } else {
+      void this.context.resume()
+    }
+  }
+
   play({ name }: { name: SfxName }): void {
-    if (this.isMuted === true || this.isSuppressed === true) {
+    if (this.isMuted === true || this.isSuppressed === true || this.isBackgrounded === true) {
       return
     }
     const now = performance.now()
@@ -231,7 +250,8 @@ class SoundEngine {
       this.masterGain.gain.value = this.isMuted === true ? 0 : this.volumeLevel
       this.masterGain.connect(this.context.destination)
     }
-    if (this.context.state === 'suspended') {
+    // never auto-resume a context we suspended for a hidden tab
+    if (this.context.state === 'suspended' && this.isBackgrounded === false) {
       void this.context.resume()
     }
     return this.context
