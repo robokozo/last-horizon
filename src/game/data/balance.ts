@@ -71,6 +71,8 @@ export const PASSIVE_EARNING_CAP_HOURS = 12
 export const NOVA = {
   maxRadius: 240,
   expandDurationMs: 450,
+  /** every pulse shoves what it hits — Concussive Pulse stacks on top of this */
+  knockbackPx: 45,
 } as const
 
 export const SALVO = {
@@ -88,7 +90,8 @@ export const BASE_RUN_STATS: RunStats = {
   fireIntervalMs: 650,
   projectileCount: 1,
   projectileSpeed: 430,
-  range: 480,
+  /** must comfortably cover the outermost buildings on the base arena, or the opening waves are unwinnable */
+  range: 600,
   pierce: 0,
   critChance: 0.05,
   critMultiplier: 2,
@@ -435,8 +438,8 @@ export const FLAME = {
   baseIntervalMs: 2_200,
   intervalStepMs: 180,
   minIntervalMs: 1_300,
-  rangePx: 250,
-  rangePerLevel: 18,
+  rangePx: 330,
+  rangePerLevel: 24,
   coneHalfAngleRad: 0.42,
   /** per-burst damage to everything in the cone = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
   baseDamageMult: 1.1,

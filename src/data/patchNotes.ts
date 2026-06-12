@@ -22,6 +22,37 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-12',
+    title: 'Sharper Teeth',
+    blurb: 'The opening fight gets fair, and everything hits more visibly.',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'Base gun range raised from 480 to 600 — the starting cannon can now actually defend the outermost buildings instead of watching them burn. The opening waves are no longer a slow-motion loss.',
+      },
+      {
+        kind: 'balance',
+        text: 'Nova Pulse now knocks invaders back on every pulse, no synergy required. Concussive Pulse stacks extra shove distance on top.',
+      },
+      {
+        kind: 'balance',
+        text: 'Flamethrower reach raised from 250 to 330 (and more per rank), so the cone actually meets the invaders.',
+      },
+      {
+        kind: 'fix',
+        text: 'The flamethrower is far more visible: a burning cone flashes over the whole hit area and the gout is denser, bigger, and brighter.',
+      },
+      {
+        kind: 'fix',
+        text: 'The thermal lance now shows where it stops: an impact splash marks the invader blocking the beam, and the beam recovers its length smoothly instead of flickering back to full range.',
+      },
+      {
+        kind: 'fix',
+        text: 'Damage numbers are bigger and outlined, so you can actually read them mid-fight.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-12',
     title: 'The Reactor Spoke',
     blurb: 'A seventh paragon branch, and the battlefield gets a battery.',
     notes: [

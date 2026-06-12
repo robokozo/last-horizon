@@ -1751,28 +1751,55 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // the gout: flame puffs racing out along the cone
-    const puffCount = 9 + 2 * (level - 1)
+    // the burning cone itself: a translucent wedge flashing over the whole hit area
+    const muzzleX = cannon.x + Math.cos(aimAngle) * BARREL_LENGTH
+    const muzzleStartY = muzzleY + Math.sin(aimAngle) * BARREL_LENGTH
+    const cone = this.add.graphics().setDepth(DEPTHS.effects)
+    cone.fillStyle(0xfb923c, 0.24)
+    cone.beginPath()
+    cone.moveTo(muzzleX, muzzleStartY)
+    cone.lineTo(
+      cannon.x + Math.cos(aimAngle - FLAME.coneHalfAngleRad) * reach,
+      muzzleY + Math.sin(aimAngle - FLAME.coneHalfAngleRad) * reach,
+    )
+    cone.lineTo(
+      cannon.x + Math.cos(aimAngle + FLAME.coneHalfAngleRad) * reach,
+      muzzleY + Math.sin(aimAngle + FLAME.coneHalfAngleRad) * reach,
+    )
+    cone.closePath()
+    cone.fillPath()
+    this.tweens.add({
+      targets: cone,
+      alpha: 0,
+      duration: 260,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        cone.destroy()
+      },
+    })
+
+    // the gout: a dense roar of flame puffs racing out along the cone
+    const puffCount = 16 + 3 * (level - 1)
     const flameColors = [0xfde047, 0xfb923c, 0xef4444]
     for (let index = 0; index < puffCount; index += 1) {
       const puffAngle = aimAngle + (Math.random() * 2 - 1) * FLAME.coneHalfAngleRad
-      const distance = reach * (0.25 + Math.random() * 0.75)
+      const distance = reach * (0.3 + Math.random() * 0.75)
       const puff = this.add
         .circle(
-          cannon.x + Math.cos(aimAngle) * BARREL_LENGTH,
-          muzzleY + Math.sin(aimAngle) * BARREL_LENGTH,
-          3 + Math.random() * 3,
+          muzzleX,
+          muzzleStartY,
+          5 + Math.random() * 5,
           flameColors[Math.floor(Math.random() * flameColors.length)],
-          0.85,
+          0.95,
         )
         .setDepth(DEPTHS.effects)
       this.tweens.add({
         targets: puff,
         x: cannon.x + Math.cos(puffAngle) * distance,
         y: muzzleY + Math.sin(puffAngle) * distance,
-        radius: 8 + Math.random() * 7,
+        radius: 13 + Math.random() * 10,
         alpha: 0,
-        duration: 280 + Math.random() * 160,
+        duration: 340 + Math.random() * 200,
         ease: 'Cubic.easeOut',
         onComplete: () => {
           puff.destroy()
@@ -2054,11 +2081,13 @@ export class GameScene extends Phaser.Scene {
         ? SYNERGIES.stasis.freezeMsBase +
           SYNERGIES.stasis.freezeMsPerLevel * (this.stats.stasisLevel - 1)
         : 0
+    // every pulse shoves — the concussive pulse synergy stacks extra distance on top
     const knockbackPx =
-      this.stats.concussiveLevel > 0
+      NOVA.knockbackPx +
+      (this.stats.concussiveLevel > 0
         ? SYNERGIES.concussive.knockbackPxBase +
           SYNERGIES.concussive.knockbackPxPerLevel * (this.stats.concussiveLevel - 1)
-        : 0
+        : 0)
     for (const enemy of this.enemies) {
       if (enemy.isDead === true) {
         continue
@@ -2068,14 +2097,11 @@ export class GameScene extends Phaser.Scene {
         if (stasisFreezeMs > 0) {
           this.applyFreeze({ enemy, durationMs: stasisFreezeMs })
         }
-        // concussive pulse synergy: the wavefront shoves everything outward
-        if (knockbackPx > 0) {
-          this.applyKnockback({
-            enemy,
-            angleRad: Math.atan2(enemy.image.y - this.cannonY, enemy.image.x - originX),
-            distancePx: knockbackPx,
-          })
-        }
+        this.applyKnockback({
+          enemy,
+          angleRad: Math.atan2(enemy.image.y - this.cannonY, enemy.image.x - originX),
+          distancePx: knockbackPx,
+        })
         this.damageEnemy({
           enemy,
           // novaDamage is a flat base — global damage bonuses scale it like every other weapon
@@ -3404,7 +3430,12 @@ export class GameScene extends Phaser.Scene {
           blockerAlong = along
         }
       }
-      sweep.currentLengthPx = blocker === null ? this.stats.range : blockerAlong
+      // snap short on contact, recover gradually — so the stop reads instead of flickering
+      const targetLengthPx = blocker === null ? this.stats.range : blockerAlong
+      sweep.currentLengthPx =
+        targetLengthPx < sweep.currentLengthPx
+          ? targetLengthPx
+          : Math.min(targetLengthPx, sweep.currentLengthPx + this.stats.range * (delta / 180))
       const thermiteDps =
         this.stats.thermiteLevel > 0
           ? this.stats.damage *
@@ -3413,6 +3444,12 @@ export class GameScene extends Phaser.Scene {
           : 0
       if (blocker !== null && sweep.hitEnemies.has(blocker) === false) {
         sweep.hitEnemies.add(blocker)
+        // a visible splash where the beam slams into its blocker
+        this.spawnImpactFlash({
+          x: sweep.originX + directionX * blockerAlong,
+          y: sweep.originY + directionY * blockerAlong,
+          radius: 20,
+        })
         this.damageEnemy({ enemy: blocker, amount: sweep.damage, source: 'lance' })
         // thermite beam synergy: everything the lance sears keeps burning
         this.igniteEnemy({ enemy: blocker, dps: thermiteDps })
@@ -5050,9 +5087,11 @@ export class GameScene extends Phaser.Scene {
     const text = this.add
       .text(x + (Math.random() * 2 - 1) * 8, y - 10, String(Math.round(amount)), {
         fontFamily: 'Segoe UI, system-ui, sans-serif',
-        fontSize: isCrit === true ? '15px' : '11px',
+        fontSize: isCrit === true ? '24px' : '17px',
         fontStyle: 'bold',
-        color: isCrit === true ? '#fde047' : '#e2e8f0',
+        color: isCrit === true ? '#fde047' : '#f1f5f9',
+        stroke: '#0f172a',
+        strokeThickness: 3,
       })
       .setOrigin(0.5, 1)
       .setDepth(DEPTHS.effects)

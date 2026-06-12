@@ -135,7 +135,8 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
   {
     id: 'nova',
     name: 'Nova Pulse',
-    description: 'Unlock a periodic shockwave (or pulse 12% faster, +15 damage)',
+    description:
+      'Unlock a periodic shockwave that knocks invaders back (or pulse 12% faster, +15 damage)',
     rarity: 'rare',
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
