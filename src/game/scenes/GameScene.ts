@@ -3589,8 +3589,38 @@ export class GameScene extends Phaser.Scene {
       if (mine.isDead === true) {
         continue
       }
-      // the balloon slowly lifts the mine, holding just under the top of the sky
-      if (mine.baseY > MINE_CEILING_Y) {
+      // armed mines catch the wind toward nearby prey — invaders crawling
+      // through cloud cover can't stall the minefield just out of reach
+      let prey: EnemyUnit | null = null
+      if (mine.armRemainingMs <= 0) {
+        let preyDistanceSq = MINES.seekRadiusPx ** 2
+        for (const enemy of this.enemies) {
+          if (enemy.isDead === true) {
+            continue
+          }
+          const distanceSq =
+            (enemy.image.x - mine.image.x) ** 2 + (enemy.image.y - mine.image.y) ** 2
+          if (distanceSq <= preyDistanceSq) {
+            preyDistanceSq = distanceSq
+            prey = enemy
+          }
+        }
+      }
+      if (prey !== null) {
+        const angle = Math.atan2(prey.image.y - mine.image.y, prey.image.x - mine.image.x)
+        mine.image.x = Phaser.Math.Clamp(
+          mine.image.x + Math.cos(angle) * MINES.seekSpeedPxPerSec * seconds,
+          20,
+          this.arenaWidth - 20,
+        )
+        mine.balloonImage.x = mine.image.x
+        mine.baseY = Phaser.Math.Clamp(
+          mine.baseY + Math.sin(angle) * MINES.seekSpeedPxPerSec * seconds,
+          MINE_CEILING_Y,
+          this.groundY - 80,
+        )
+      } else if (mine.baseY > MINE_CEILING_Y) {
+        // the balloon slowly lifts the idle mine, holding just under the top of the sky
         mine.baseY = Math.max(MINE_CEILING_Y, mine.baseY - MINE_RISE_SPEED_PX_PER_SEC * seconds)
       }
       const bobOffsetY = Math.sin((this.elapsedMs / 1_000) * 1.6 + mine.bobPhase) * 3

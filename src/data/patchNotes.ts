@@ -22,6 +22,17 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-12',
+    title: 'Hungry Balloons',
+    blurb: 'Community report: cloud cover made minefields feel sluggish.',
+    notes: [
+      {
+        kind: 'fix',
+        text: 'Mines no longer wait politely while slowed invaders crawl just outside their trigger radius — armed mines now catch the wind and drift toward nearby prey. Minefields actively close the gap, clouds or not.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-12',
     title: 'Storm Front',
     blurb: 'Three new battlefield effects and fourteen new synergies.',
     notes: [

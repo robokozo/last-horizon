@@ -319,6 +319,9 @@ export const MINES = {
   maxActivePerCannon: 6,
   armDelayMs: 500,
   proximityPx: 30,
+  /** armed mines catch the wind toward prey inside this radius, so slowed invaders can't stall the field */
+  seekRadiusPx: 150,
+  seekSpeedPxPerSec: 30,
   blastRadius: 85,
   blastRadiusPerLevel: 8,
   /** mine damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
