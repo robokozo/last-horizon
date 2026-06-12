@@ -408,17 +408,6 @@ function nodeOpacity({ node }: { node: SkillNode }): number {
           >
             {{ node.icon }}
           </text>
-          <text
-            :x="node.x"
-            :y="node.y + NODE_RADII[node.kind] + 18"
-            text-anchor="middle"
-            class="pointer-events-none select-none"
-            fill="#cbd5e1"
-            font-size="13"
-            font-weight="600"
-          >
-            {{ node.name }}
-          </text>
         </g>
       </svg>
 
