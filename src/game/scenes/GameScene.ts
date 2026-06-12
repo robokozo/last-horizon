@@ -126,7 +126,7 @@ interface SwarmUnit {
   isDead: boolean
 }
 
-/** a thermal lance beam anchored at the main cannon, sweeping an arc across the sky */
+/** a thermal lance beam anchored at a cannon, sweeping an arc across the sky */
 interface SweepBeam {
   originX: number
   originY: number
@@ -135,7 +135,9 @@ interface SweepBeam {
   directionSign: 1 | -1
   damage: number
   hitEnemies: Set<EnemyUnit>
-  /** how far the beam reaches this frame — full range, or cut short by the invader blocking it */
+  /** the beam's reach — pinned to the ignition target's distance, not max range */
+  reachPx: number
+  /** how far the beam extends this frame — reachPx, or cut short by a blocking invader */
   currentLengthPx: number
   isDead: boolean
 }
@@ -3468,7 +3470,7 @@ export class GameScene extends Phaser.Scene {
         const toEnemyX = enemy.image.x - sweep.originX
         const toEnemyY = enemy.image.y - sweep.originY
         const along = toEnemyX * directionX + toEnemyY * directionY
-        if (along < BARREL_LENGTH || along > this.stats.range + enemy.radius) {
+        if (along < BARREL_LENGTH || along > sweep.reachPx + enemy.radius) {
           continue
         }
         const perpendicular = Math.abs(toEnemyX * directionY - toEnemyY * directionX)
@@ -3485,11 +3487,11 @@ export class GameScene extends Phaser.Scene {
         }
       }
       // snap short on contact, recover gradually — so the stop reads instead of flickering
-      const targetLengthPx = blocker === null ? this.stats.range : blockerAlong
+      const targetLengthPx = blocker === null ? sweep.reachPx : blockerAlong
       sweep.currentLengthPx =
         targetLengthPx < sweep.currentLengthPx
           ? targetLengthPx
-          : Math.min(targetLengthPx, sweep.currentLengthPx + this.stats.range * (delta / 180))
+          : Math.min(targetLengthPx, sweep.currentLengthPx + sweep.reachPx * (delta / 180))
       const thermiteDps =
         this.stats.thermiteLevel > 0
           ? this.stats.damage *
@@ -3542,8 +3544,11 @@ export class GameScene extends Phaser.Scene {
     const spanRad = Phaser.Math.DegToRad(
       LANCE.sweepArcDegBase + LANCE.sweepArcDegPerLevel * (level - 1),
     )
-    const centerAngle = Math.atan2(target.image.y - originY, target.image.x - originX)
-    const directionSign: 1 | -1 = Math.random() < 0.5 ? 1 : -1
+    // the beam ignites ON the target and sweeps onward at the target's distance
+    const targetAngle = Math.atan2(target.image.y - originY, target.image.x - originX)
+    const reachPx = Math.hypot(target.image.x - originX, target.image.y - originY) + target.radius
+    // sweep toward whichever side of the sky has room for the full arc
+    const directionSign: 1 | -1 = targetAngle > -Math.PI / 2 ? -1 : 1
     // keep the whole arc pointed into the sky (angles between just-above-horizon left and right)
     const clampAngle = (angle: number): number => Phaser.Math.Clamp(angle, -Math.PI + 0.12, -0.12)
 
@@ -3566,12 +3571,13 @@ export class GameScene extends Phaser.Scene {
     this.sweeps.push({
       originX,
       originY,
-      angleRad: clampAngle(centerAngle - (spanRad / 2) * directionSign),
-      endAngleRad: clampAngle(centerAngle + (spanRad / 2) * directionSign),
+      angleRad: clampAngle(targetAngle),
+      endAngleRad: clampAngle(targetAngle + spanRad * directionSign),
       directionSign,
       damage: sweepDamage,
       hitEnemies: new Set(),
-      currentLengthPx: this.stats.range,
+      reachPx,
+      currentLengthPx: reachPx,
       isDead: false,
     })
 
@@ -3590,6 +3596,8 @@ export class GameScene extends Phaser.Scene {
       const echoOriginX = nearestCloud.image.x
       const echoOriginY = nearestCloud.image.y
       const echoCenter = Math.atan2(target.image.y - echoOriginY, target.image.x - echoOriginX)
+      const echoReachPx =
+        Math.hypot(target.image.x - echoOriginX, target.image.y - echoOriginY) + target.radius
       const echoSpan = spanRad * SYNERGIES.refraction.arcFactor
       const echoFlare = this.add
         .circle(echoOriginX, echoOriginY, 8, 0xfefce8, 0.9)
@@ -3608,15 +3616,16 @@ export class GameScene extends Phaser.Scene {
         originX: echoOriginX,
         originY: echoOriginY,
         // a cloud can fire downward — no sky clamp on the refracted beam
-        angleRad: echoCenter - (echoSpan / 2) * directionSign,
-        endAngleRad: echoCenter + (echoSpan / 2) * directionSign,
+        angleRad: echoCenter,
+        endAngleRad: echoCenter + echoSpan * directionSign,
         directionSign,
         damage:
           sweepDamage *
           (SYNERGIES.refraction.damageFactorBase +
             SYNERGIES.refraction.damageFactorPerLevel * (this.stats.refractionLevel - 1)),
         hitEnemies: new Set(),
-        currentLengthPx: this.stats.range,
+        reachPx: echoReachPx,
+        currentLengthPx: echoReachPx,
         isDead: false,
       })
     }

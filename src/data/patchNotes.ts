@@ -33,6 +33,10 @@ export const PATCH_NOTES: Array<PatchEntry> = [
         kind: 'fix',
         text: 'Your chosen game speed (×2, ×5) now sticks between rounds and reloads instead of resetting to ×1 every run.',
       },
+      {
+        kind: 'balance',
+        text: 'The thermal lance now ignites directly on its target and sweeps onward at that distance — no more beam flailing out to maximum range past everything.',
+      },
     ],
   },
   {
