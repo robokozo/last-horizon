@@ -5,7 +5,14 @@ const { offer } = defineProps<{ offer: LevelUpOffer }>()
 
 const emit = defineEmits<{
   choose: [payload: { upgradeId: string }]
+  reroll: []
+  banish: [payload: { upgradeId: string }]
 }>()
+
+function isBanishable({ upgradeId }: { upgradeId: string }): boolean {
+  // consolation fillers are not part of the pool, so striking them is meaningless
+  return upgradeId.startsWith('filler-') === false
+}
 
 const RARITY_CARD_CLASSES: Record<UpgradeRarity, string> = {
   common: 'border-slate-500/50 hover:border-slate-300',
@@ -38,43 +45,71 @@ const RARITY_LABEL_CLASSES: Record<UpgradeRarity, string> = {
         </span>
       </p>
       <div class="flex flex-wrap items-stretch justify-center gap-4">
-        <button
-          v-for="choice in offer.choices"
-          :key="choice.id"
-          type="button"
-          class="flex w-52 cursor-pointer flex-col gap-2 rounded-xl border bg-slate-900/90 p-5 text-left transition hover:-translate-y-1"
-          :class="RARITY_CARD_CLASSES[choice.rarity]"
-          @click="emit('choose', { upgradeId: choice.id })"
-        >
-          <span class="flex items-center justify-between gap-2">
-            <span
-              class="text-[10px] font-bold uppercase tracking-widest"
-              :class="RARITY_LABEL_CLASSES[choice.rarity]"
-            >
-              {{ choice.rarity }}
-            </span>
-            <span
-              v-if="choice.category === 'weapon'"
-              class="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
-              :class="
-                choice.currentStacks === 0
-                  ? 'bg-amber-400/20 text-amber-300'
-                  : 'bg-slate-700/60 text-slate-400'
-              "
-            >
-              {{ choice.currentStacks === 0 ? 'Uses a slot' : 'Weapon' }}
-            </span>
-          </span>
-          <span class="text-lg font-bold text-slate-100">{{ choice.name }}</span>
-          <span class="text-sm text-slate-400">{{ choice.description }}</span>
-          <span class="mt-auto text-sm tracking-widest" aria-label="tier progress">
-            <template v-for="star in choice.maxStacks" :key="star">
-              <span :class="star <= choice.currentStacks ? 'text-amber-300' : 'text-slate-600'">
-                {{ star <= choice.currentStacks ? '★' : '☆' }}
+        <div v-for="choice in offer.choices" :key="choice.id" class="relative flex">
+          <button
+            type="button"
+            class="flex w-52 cursor-pointer flex-col gap-2 rounded-xl border bg-slate-900/90 p-5 text-left transition hover:-translate-y-1"
+            :class="RARITY_CARD_CLASSES[choice.rarity]"
+            @click="emit('choose', { upgradeId: choice.id })"
+          >
+            <span class="flex items-center justify-between gap-2">
+              <span
+                class="text-[10px] font-bold uppercase tracking-widest"
+                :class="RARITY_LABEL_CLASSES[choice.rarity]"
+              >
+                {{ choice.rarity }}
               </span>
-            </template>
-          </span>
+              <span
+                v-if="choice.category === 'weapon'"
+                class="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                :class="
+                  choice.currentStacks === 0
+                    ? 'bg-amber-400/20 text-amber-300'
+                    : 'bg-slate-700/60 text-slate-400'
+                "
+              >
+                {{ choice.currentStacks === 0 ? 'Uses a slot' : 'Weapon' }}
+              </span>
+            </span>
+            <span class="text-lg font-bold text-slate-100">{{ choice.name }}</span>
+            <span class="text-sm text-slate-400">{{ choice.description }}</span>
+            <span
+              v-if="choice.synergyOf !== null"
+              class="text-xs font-semibold text-fuchsia-300/90"
+            >
+              ⛓ Synergy of {{ choice.synergyOf }}
+            </span>
+            <span class="mt-auto text-sm tracking-widest" aria-label="tier progress">
+              <template v-for="star in choice.maxStacks" :key="star">
+                <span :class="star <= choice.currentStacks ? 'text-amber-300' : 'text-slate-600'">
+                  {{ star <= choice.currentStacks ? '★' : '☆' }}
+                </span>
+              </template>
+            </span>
+          </button>
+          <button
+            v-if="offer.banishesLeft > 0 && isBanishable({ upgradeId: choice.id })"
+            type="button"
+            class="absolute -right-2 -top-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-red-500/50 bg-slate-950 text-xs font-bold text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
+            :title="`Banish ${choice.name} for the rest of this run`"
+            @click.stop="emit('banish', { upgradeId: choice.id })"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <button
+          v-if="offer.rerollsLeft > 0"
+          type="button"
+          class="cursor-pointer rounded-lg border border-slate-600 px-5 py-2 text-sm font-semibold text-slate-300 transition hover:border-slate-400 hover:text-slate-100"
+          @click="emit('reroll')"
+        >
+          ↻ Reroll ({{ offer.rerollsLeft }} left this run)
         </button>
+        <p v-if="offer.banishesLeft > 0" class="text-xs text-slate-500">
+          ✕ banishes a card for the run ({{ offer.banishesLeft }} left)
+        </p>
       </div>
     </div>
   </div>

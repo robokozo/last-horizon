@@ -7,6 +7,7 @@ import GameOverOverlay from '@/components/GameOverOverlay.vue'
 import LevelUpOverlay from '@/components/LevelUpOverlay.vue'
 import { createPlanetGame } from '@/game/createGame'
 import { gameEventBus } from '@/game/eventBus'
+import { soundEngine } from '@/game/sound'
 import type { HudSnapshot, LevelUpOffer, RunResult } from '@/game/types'
 import { buildStartingStats, stardustMultiplierFrom } from '@/skills/skillTree'
 import { useMetaStore } from '@/stores/metaStore'
@@ -19,6 +20,12 @@ const levelUpOffer = ref<LevelUpOffer | null>(null)
 const runResult = ref<RunResult | null>(null)
 const isPaused = ref(false)
 const speedMultiplier = ref(1)
+const isMuted = ref(soundEngine.muted())
+
+function toggleMute(): void {
+  isMuted.value = isMuted.value === false
+  soundEngine.setMuted({ isMuted: isMuted.value })
+}
 
 const SPEED_CYCLE: Array<number> = [1, 2, 5]
 
@@ -65,6 +72,15 @@ function cycleSpeed(): void {
 function chooseUpgrade({ upgradeId }: { upgradeId: string }): void {
   levelUpOffer.value = null
   gameEventBus.emit({ event: 'upgrade-chosen', payload: { upgradeId } })
+}
+
+function requestReroll(): void {
+  // the scene answers with a fresh 'level-up' event carrying new choices
+  gameEventBus.emit({ event: 'reroll-requested', payload: {} })
+}
+
+function requestBanish({ upgradeId }: { upgradeId: string }): void {
+  gameEventBus.emit({ event: 'banish-requested', payload: { upgradeId } })
 }
 
 function togglePause(): void {
@@ -135,6 +151,14 @@ onUnmounted(() => {
       >
         {{ isPaused === true ? 'Resume' : 'Pause' }}
       </button>
+      <button
+        type="button"
+        class="cursor-pointer rounded-lg bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+        :aria-label="isMuted === true ? 'Unmute sound' : 'Mute sound'"
+        @click="toggleMute()"
+      >
+        {{ isMuted === true ? '🔇' : '🔊' }}
+      </button>
       <RouterLink
         to="/"
         class="rounded-lg bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
@@ -154,6 +178,8 @@ onUnmounted(() => {
       v-if="levelUpOffer !== null"
       :offer="levelUpOffer"
       @choose="(payload) => chooseUpgrade(payload)"
+      @reroll="() => requestReroll()"
+      @banish="(payload) => requestBanish(payload)"
     />
 
     <GameOverOverlay v-if="runResult !== null" :result="runResult" @restart="() => restartRun()" />

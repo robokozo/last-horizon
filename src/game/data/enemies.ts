@@ -5,6 +5,9 @@ export type EnemyKind =
   | 'elite'
   | 'splitter'
   | 'shardling'
+  | 'warden'
+  | 'dancer'
+  | 'mender'
   | 'mothership'
   | 'dummy'
 
@@ -87,6 +90,39 @@ export const ENEMY_DEFINITIONS: Record<EnemyKind, EnemyDefinition> = {
     radius: 7,
     minWave: 1,
     spawnWeight: 0,
+  },
+  warden: {
+    kind: 'warden',
+    textureKey: 'enemy-warden',
+    hp: 30,
+    speed: 45,
+    contactDamage: 12,
+    xpValue: 8,
+    radius: 14,
+    minWave: 6,
+    spawnWeight: 3,
+  },
+  dancer: {
+    kind: 'dancer',
+    textureKey: 'enemy-dancer',
+    hp: 14,
+    speed: 70,
+    contactDamage: 7,
+    xpValue: 6,
+    radius: 11,
+    minWave: 8,
+    spawnWeight: 4,
+  },
+  mender: {
+    kind: 'mender',
+    textureKey: 'enemy-mender',
+    hp: 26,
+    speed: 38,
+    contactDamage: 8,
+    xpValue: 10,
+    radius: 13,
+    minWave: 9,
+    spawnWeight: 2,
   },
   mothership: {
     kind: 'mothership',

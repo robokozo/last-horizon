@@ -1,8 +1,4 @@
-import {
-  AEGIS_BLOCK_INTERVAL_MS,
-  BASE_RUN_STATS,
-  NOVA_START_INTERVAL_MS,
-} from '@/game/data/balance'
+import { AEGIS_BLOCK_INTERVAL_MS, BASE_RUN_STATS } from '@/game/data/balance'
 import type { RunStats } from '@/game/types'
 
 export type SkillNodeKind = 'root' | 'minor' | 'notable' | 'keystone'
@@ -23,10 +19,9 @@ export type MetaStat =
   | 'rangePercent'
   | 'critChancePercent'
   | 'pierceFlat'
-  | 'projectileCountFlat'
   | 'maxHpFlat'
   | 'regenPerSecondFlat'
-  | 'novaUnlockFlat'
+  | 'critMultiplierFlat'
   | 'aegisUnlockFlat'
   | 'weaponSlotFlat'
   | 'weaponTierFlat'
@@ -34,6 +29,8 @@ export type MetaStat =
   | 'luckPercent'
   | 'xpPercent'
   | 'stardustPercent'
+  | 'rerollFlat'
+  | 'banishFlat'
 
 export interface SkillEffect {
   stat: MetaStat
@@ -66,14 +63,20 @@ type SlotKey =
   | 'entry'
   | 'earlyA'
   | 'earlyB'
+  | 'earlyC'
   | 'midA'
   | 'midB'
   | 'midC'
+  | 'midD'
   | 'notable'
   | 'lateA'
   | 'lateB'
+  | 'lateC'
   | 'deepA'
   | 'deepB'
+  | 'deepC'
+  | 'primeA'
+  | 'primeB'
   | 'keystone'
 
 interface SlotLayout {
@@ -84,32 +87,44 @@ interface SlotLayout {
 }
 
 const SLOT_LAYOUT: Record<SlotKey, SlotLayout> = {
-  entry: { radius: 100, angleOffsetDeg: 0, kind: 'minor', cost: 10 },
-  earlyA: { radius: 185, angleOffsetDeg: -16, kind: 'minor', cost: 12 },
-  earlyB: { radius: 185, angleOffsetDeg: 16, kind: 'minor', cost: 12 },
-  midA: { radius: 270, angleOffsetDeg: -24, kind: 'minor', cost: 15 },
-  midB: { radius: 270, angleOffsetDeg: 24, kind: 'minor', cost: 15 },
-  midC: { radius: 270, angleOffsetDeg: 0, kind: 'minor', cost: 15 },
-  notable: { radius: 360, angleOffsetDeg: 0, kind: 'notable', cost: 50 },
-  lateA: { radius: 450, angleOffsetDeg: -18, kind: 'minor', cost: 20 },
-  lateB: { radius: 450, angleOffsetDeg: 18, kind: 'minor', cost: 20 },
-  deepA: { radius: 540, angleOffsetDeg: -10, kind: 'minor', cost: 30 },
-  deepB: { radius: 540, angleOffsetDeg: 10, kind: 'minor', cost: 30 },
-  keystone: { radius: 630, angleOffsetDeg: 0, kind: 'keystone', cost: 180 },
+  entry: { radius: 115, angleOffsetDeg: 0, kind: 'minor', cost: 8 },
+  earlyA: { radius: 215, angleOffsetDeg: -20, kind: 'minor', cost: 10 },
+  earlyB: { radius: 215, angleOffsetDeg: 0, kind: 'minor', cost: 10 },
+  earlyC: { radius: 215, angleOffsetDeg: 20, kind: 'minor', cost: 10 },
+  midA: { radius: 320, angleOffsetDeg: -26, kind: 'minor', cost: 12 },
+  midB: { radius: 320, angleOffsetDeg: -9, kind: 'minor', cost: 12 },
+  midC: { radius: 320, angleOffsetDeg: 9, kind: 'minor', cost: 12 },
+  midD: { radius: 320, angleOffsetDeg: 26, kind: 'minor', cost: 12 },
+  notable: { radius: 430, angleOffsetDeg: 0, kind: 'notable', cost: 50 },
+  lateA: { radius: 540, angleOffsetDeg: -22, kind: 'minor', cost: 16 },
+  lateB: { radius: 540, angleOffsetDeg: 0, kind: 'minor', cost: 16 },
+  lateC: { radius: 540, angleOffsetDeg: 22, kind: 'minor', cost: 16 },
+  deepA: { radius: 650, angleOffsetDeg: -14, kind: 'minor', cost: 22 },
+  deepB: { radius: 650, angleOffsetDeg: 0, kind: 'minor', cost: 22 },
+  deepC: { radius: 650, angleOffsetDeg: 14, kind: 'minor', cost: 22 },
+  primeA: { radius: 745, angleOffsetDeg: -8, kind: 'minor', cost: 30 },
+  primeB: { radius: 745, angleOffsetDeg: 8, kind: 'minor', cost: 30 },
+  keystone: { radius: 840, angleOffsetDeg: 0, kind: 'keystone', cost: 180 },
 }
 
 const SLOT_CONNECTIONS: Record<SlotKey, Array<SlotKey>> = {
-  entry: ['earlyA', 'earlyB'],
-  earlyA: ['midA', 'midC'],
+  entry: ['earlyA', 'earlyB', 'earlyC'],
+  earlyA: ['midA', 'midB'],
   earlyB: ['midB', 'midC'],
+  earlyC: ['midC', 'midD'],
   midA: ['notable'],
   midB: ['notable'],
   midC: ['notable'],
-  notable: ['lateA', 'lateB'],
+  midD: ['notable'],
+  notable: ['lateA', 'lateB', 'lateC'],
   lateA: ['deepA'],
   lateB: ['deepB'],
-  deepA: ['keystone'],
-  deepB: ['keystone'],
+  lateC: ['deepC'],
+  deepA: ['primeA'],
+  deepB: ['primeA', 'primeB'],
+  deepC: ['primeB'],
+  primeA: ['keystone'],
+  primeB: ['keystone'],
   keystone: [],
 }
 
@@ -121,16 +136,22 @@ const MINOR_SLOT_TEMPLATE: Record<
   entry: 'primary',
   earlyA: 'secondary',
   earlyB: 'primary',
+  earlyC: 'secondary',
   midA: 'primary',
   midB: 'secondary',
-  midC: 'secondary',
+  midC: 'primary',
+  midD: 'secondary',
   lateA: 'primary',
   lateB: 'secondary',
-  deepA: 'primary',
-  deepB: 'secondary',
+  lateC: 'primary',
+  deepA: 'secondary',
+  deepB: 'primary',
+  deepC: 'secondary',
+  primeA: 'primary',
+  primeB: 'secondary',
 }
 
-const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI'] as const
+const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'] as const
 
 interface MinorTemplate {
   name: string
@@ -159,13 +180,13 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     minors: {
       primary: {
         name: 'Hardened Slugs',
-        description: '+3% damage',
-        effects: [{ stat: 'damagePercent', amount: 3 }],
+        description: '+2% damage',
+        effects: [{ stat: 'damagePercent', amount: 2 }],
       },
       secondary: {
         name: 'Targeting Optics',
-        description: '+2% critical chance',
-        effects: [{ stat: 'critChancePercent', amount: 2 }],
+        description: '+1.5% critical chance',
+        effects: [{ stat: 'critChancePercent', amount: 1.5 }],
       },
     },
     notable: {
@@ -191,13 +212,13 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     minors: {
       primary: {
         name: 'Rifled Barrels',
-        description: '+3% projectile speed',
-        effects: [{ stat: 'projectileSpeedPercent', amount: 3 }],
+        description: '+2% projectile speed',
+        effects: [{ stat: 'projectileSpeedPercent', amount: 2 }],
       },
       secondary: {
         name: 'Hollow Points',
-        description: '+2% damage',
-        effects: [{ stat: 'damagePercent', amount: 2 }],
+        description: '+1.5% damage',
+        effects: [{ stat: 'damagePercent', amount: 1.5 }],
       },
     },
     notable: {
@@ -206,9 +227,9 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
       effects: [{ stat: 'pierceFlat', amount: 1 }],
     },
     keystone: {
-      name: 'Twin Cannons',
-      description: 'Keystone: start every run with +1 projectile per volley',
-      effects: [{ stat: 'projectileCountFlat', amount: 1 }],
+      name: 'Autoloaders',
+      description: 'Keystone: automated loaders — every weapon system cycles 20% faster',
+      effects: [{ stat: 'fireRatePercent', amount: 20 }],
     },
   },
   {
@@ -217,13 +238,13 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     minors: {
       primary: {
         name: 'Capacitor Banks',
-        description: '+3% fire rate',
-        effects: [{ stat: 'fireRatePercent', amount: 3 }],
+        description: '+2% fire rate',
+        effects: [{ stat: 'fireRatePercent', amount: 2 }],
       },
       secondary: {
         name: 'Coil Windings',
-        description: '+3% projectile speed',
-        effects: [{ stat: 'projectileSpeedPercent', amount: 3 }],
+        description: '+2% projectile speed',
+        effects: [{ stat: 'projectileSpeedPercent', amount: 2 }],
       },
     },
     notable: {
@@ -235,9 +256,9 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
       ],
     },
     keystone: {
-      name: 'Nova Core',
-      description: 'Keystone: start every run with the Nova Pulse shockwave',
-      effects: [{ stat: 'novaUnlockFlat', amount: 1 }],
+      name: 'Overdrive Core',
+      description: 'Keystone: critical strikes hit half again as hard (×3 damage instead of ×2)',
+      effects: [{ stat: 'critMultiplierFlat', amount: 1 }],
     },
   },
   {
@@ -246,13 +267,13 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     minors: {
       primary: {
         name: 'Basalt Crust',
-        description: '+8 max integrity',
-        effects: [{ stat: 'maxHpFlat', amount: 8 }],
+        description: '+5 max integrity',
+        effects: [{ stat: 'maxHpFlat', amount: 5 }],
       },
       secondary: {
         name: 'Self-Sealing Rock',
-        description: '+0.3 integrity regen per second',
-        effects: [{ stat: 'regenPerSecondFlat', amount: 0.3 }],
+        description: '+0.2 integrity regen per second',
+        effects: [{ stat: 'regenPerSecondFlat', amount: 0.2 }],
       },
     },
     notable: {
@@ -275,13 +296,13 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     minors: {
       primary: {
         name: 'Wide-Band Radar',
-        description: '+3% targeting range',
-        effects: [{ stat: 'rangePercent', amount: 3 }],
+        description: '+2% targeting range',
+        effects: [{ stat: 'rangePercent', amount: 2 }],
       },
       secondary: {
         name: 'Spectral Lens',
-        description: '+2% critical chance',
-        effects: [{ stat: 'critChancePercent', amount: 2 }],
+        description: '+1.5% critical chance',
+        effects: [{ stat: 'critChancePercent', amount: 1.5 }],
       },
     },
     notable: {
@@ -307,13 +328,13 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     minors: {
       primary: {
         name: 'Survey Probes',
-        description: '+4% experience gained',
-        effects: [{ stat: 'xpPercent', amount: 4 }],
+        description: '+2.5% experience gained',
+        effects: [{ stat: 'xpPercent', amount: 2.5 }],
       },
       secondary: {
         name: 'Salvage Rigs',
-        description: '+5% stardust earned',
-        effects: [{ stat: 'stardustPercent', amount: 5 }],
+        description: '+3% stardust earned',
+        effects: [{ stat: 'stardustPercent', amount: 3 }],
       },
     },
     notable: {
@@ -336,18 +357,52 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
   },
 ]
 
+/**
+ * Uniform utility slots: the same node appears at this slot on every branch,
+ * so the board stays rotationally symmetric. One reroll cache per branch on
+ * the mid ring, one banish cache per branch deep in.
+ */
+const UNIFORM_SLOT_OVERRIDES: Partial<
+  Record<SlotKey, { kind: SkillNodeKind; cost: number; content: SlotContent }>
+> = {
+  midD: {
+    kind: 'notable',
+    cost: 40,
+    content: {
+      name: 'Tactical Reserve',
+      description: '+1 card reroll per run',
+      effects: [{ stat: 'rerollFlat', amount: 1 }],
+    },
+  },
+  deepC: {
+    kind: 'notable',
+    cost: 50,
+    content: {
+      name: 'Exclusion Protocol',
+      description: '+1 card banish per run — strike an offered card from the rest of the run',
+      effects: [{ stat: 'banishFlat', amount: 1 }],
+    },
+  },
+}
+
 const SLOT_KEYS: Array<SlotKey> = [
   'entry',
   'earlyA',
   'earlyB',
+  'earlyC',
   'midA',
   'midB',
   'midC',
+  'midD',
   'notable',
   'lateA',
   'lateB',
+  'lateC',
   'deepA',
   'deepB',
+  'deepC',
+  'primeA',
+  'primeB',
   'keystone',
 ]
 
@@ -376,8 +431,16 @@ function buildBranchNodes({ branch }: { branch: BranchDefinition }): Array<Skill
       angleDeg: branch.angleDeg + layout.angleOffsetDeg,
     })
 
+    const override = UNIFORM_SLOT_OVERRIDES[slot]
+
     let content: SlotContent
-    if (slot === 'notable') {
+    let kind = layout.kind
+    let cost = layout.cost
+    if (override !== undefined) {
+      content = override.content
+      kind = override.kind
+      cost = override.cost
+    } else if (slot === 'notable') {
       content = branch.notable
     } else if (slot === 'keystone') {
       content = branch.keystone
@@ -396,9 +459,9 @@ function buildBranchNodes({ branch }: { branch: BranchDefinition }): Array<Skill
       id: nodeIdFor({ branchId: branch.id, slot }),
       name: content.name,
       description: content.description,
-      kind: layout.kind,
+      kind,
       branch: branch.id,
-      cost: layout.cost,
+      cost,
       x,
       y,
       connections: SLOT_CONNECTIONS[slot].map((targetSlot) =>
@@ -439,17 +502,17 @@ function buildSkillNodes(): Array<SkillNode> {
     const current = BRANCH_DEFINITIONS[index]
     const next = BRANCH_DEFINITIONS[(index + 1) % BRANCH_DEFINITIONS.length]
     addRingLink({
-      fromId: nodeIdFor({ branchId: current.id, slot: 'earlyB' }),
+      fromId: nodeIdFor({ branchId: current.id, slot: 'earlyC' }),
       toId: nodeIdFor({ branchId: next.id, slot: 'earlyA' }),
     })
     addRingLink({
-      fromId: nodeIdFor({ branchId: current.id, slot: 'lateB' }),
+      fromId: nodeIdFor({ branchId: current.id, slot: 'lateC' }),
       toId: nodeIdFor({ branchId: next.id, slot: 'lateA' }),
     })
   }
 
   // expansion nodes: the deepest investments, one hanging beyond every keystone
-  const EXPANSION_RADIUS = 740
+  const EXPANSION_RADIUS = 970
   const expansionNodes: Array<SkillNode> = [
     {
       id: 'offense-expansion',
@@ -475,14 +538,14 @@ function buildSkillNodes(): Array<SkillNode> {
     },
     {
       id: 'tech-expansion',
-      name: 'Modular Racks',
-      description: '+1 weapon slot — carry an additional weapon type each run',
+      name: 'Prototype Lab',
+      description: '+1 maximum tier on every weapon card — keep ranking up past ★5',
       kind: 'notable',
       branch: 'tech',
-      cost: 220,
+      cost: 240,
       ...polarPoint({ radius: EXPANSION_RADIUS, angleDeg: 120 }),
       connections: [],
-      effects: [{ stat: 'weaponSlotFlat', amount: 1 }],
+      effects: [{ stat: 'weaponTierFlat', amount: 1 }],
     },
     {
       id: 'defense-expansion',
@@ -497,14 +560,14 @@ function buildSkillNodes(): Array<SkillNode> {
     },
     {
       id: 'sensors-expansion',
-      name: 'Prototype Lab',
-      description: '+1 maximum tier on every weapon card — keep ranking up past ★5',
+      name: 'Modular Racks',
+      description: '+1 weapon slot — carry an additional weapon type each run',
       kind: 'notable',
       branch: 'sensors',
-      cost: 240,
+      cost: 220,
       ...polarPoint({ radius: EXPANSION_RADIUS, angleDeg: 240 }),
       connections: [],
-      effects: [{ stat: 'weaponTierFlat', amount: 1 }],
+      effects: [{ stat: 'weaponSlotFlat', amount: 1 }],
     },
     {
       id: 'fortune-expansion',
@@ -590,12 +653,17 @@ export function buildStartingStats({
     range: BASE_RUN_STATS.range * (1 + valueOf('rangePercent') / 100),
     critChance: BASE_RUN_STATS.critChance + valueOf('critChancePercent') / 100,
     pierce: BASE_RUN_STATS.pierce + valueOf('pierceFlat'),
-    projectileCount: BASE_RUN_STATS.projectileCount + valueOf('projectileCountFlat'),
     maxHp: BASE_RUN_STATS.maxHp + valueOf('maxHpFlat'),
     regenPerSecond: BASE_RUN_STATS.regenPerSecond + valueOf('regenPerSecondFlat'),
-    novaIntervalMs: valueOf('novaUnlockFlat') > 0 ? NOVA_START_INTERVAL_MS : null,
+    // fire rate is global haste: the same boost speeds the main cannon
+    // (fireIntervalMs above) and every auxiliary weapon's cooldown
+    weaponCooldownFactor:
+      BASE_RUN_STATS.weaponCooldownFactor / (1 + valueOf('fireRatePercent') / 100),
+    critMultiplier: BASE_RUN_STATS.critMultiplier + valueOf('critMultiplierFlat'),
     aegisIntervalMs: valueOf('aegisUnlockFlat') > 0 ? AEGIS_BLOCK_INTERVAL_MS : null,
     weaponSlots: BASE_RUN_STATS.weaponSlots + valueOf('weaponSlotFlat'),
+    rerollsPerRun: BASE_RUN_STATS.rerollsPerRun + valueOf('rerollFlat'),
+    banishesPerRun: BASE_RUN_STATS.banishesPerRun + valueOf('banishFlat'),
     luck: BASE_RUN_STATS.luck * (1 + valueOf('luckPercent') / 100),
     xpMultiplier: BASE_RUN_STATS.xpMultiplier * (1 + valueOf('xpPercent') / 100),
   }

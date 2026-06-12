@@ -3,38 +3,37 @@ import type Phaser from 'phaser'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { createPlanetGame } from '@/game/createGame'
-import { UPGRADE_DEFINITIONS } from '@/game/data/upgrades'
+import { SOURCE_LABELS } from '@/game/data/sourceLabels'
+import {
+  describeSynergyRequirements,
+  UPGRADE_DEFINITIONS,
+  type UpgradeDefinition,
+} from '@/game/data/upgrades'
 import { gameEventBus } from '@/game/eventBus'
+import { soundEngine } from '@/game/sound'
 import type { SandboxLayout, SandboxStatsEntry } from '@/game/types'
 import { SKILL_NODES, buildStartingStats } from '@/skills/skillTree'
 
 type TreePreset = 'none' | 'keystones' | 'full'
 
-const SOURCE_LABELS: Record<string, string> = {
-  main: 'Main Guns',
-  flak: 'Flak Gun',
-  rocket: 'Rocket Pod',
-  chain: 'Tesla Arc',
-  nova: 'Nova Pulse',
-  railgun: 'Rail Gun',
-  lance: 'Thermal Lance',
-  mines: 'Mine Layer',
-  'orbital-laser': 'Orbital Laser',
-  airstrike: 'Strafing Run',
-  bfg: 'BFG',
-  storm: 'Storm Front',
-  ion: 'Ion Rail',
-  cluster: 'Cluster Bombs',
-}
-
 const gameContainer = ref<HTMLDivElement | null>(null)
 const treePreset = ref<TreePreset>('none')
+const isMuted = ref(soundEngine.muted())
+
+function toggleMute(): void {
+  isMuted.value = isMuted.value === false
+  soundEngine.setMuted({ isMuted: isMuted.value })
+}
 const cardStacks = ref<Record<string, number>>({})
 const statsEntries = ref<Array<SandboxStatsEntry>>([])
 const elapsedMs = ref(0)
 const dummyFormation = ref<SandboxLayout['formation']>('field')
 const dummySpread = ref(100)
 const dummiesMoving = ref(false)
+const isMainGunEnabled = ref(true)
+/** null = invincible; finite dummies die and respawn (for kill-triggered effects) */
+const dummyHp = ref<number | null>(null)
+const DUMMY_HP_OPTIONS: Array<number | null> = [null, 50, 250, 1000]
 
 let game: Phaser.Game | null = null
 let restartTimer: ReturnType<typeof setTimeout> | null = null
@@ -52,6 +51,46 @@ const PRESET_NODE_IDS: Record<TreePreset, Array<string>> = {
 }
 
 const totalDps = computed(() => statsEntries.value.reduce((sum, entry) => sum + entry.dps, 0))
+
+// ── card tooltip ──────────────────────────────────────────────────────
+const mainElement = ref<HTMLElement | null>(null)
+const hoveredCard = ref<UpgradeDefinition | null>(null)
+const tooltipX = ref(0)
+const tooltipY = ref(0)
+
+const hoveredSynergyOf = computed(() => {
+  if (hoveredCard.value === null) {
+    return null
+  }
+  return describeSynergyRequirements({ definition: hoveredCard.value })
+})
+
+function onCardHover({
+  definition,
+  event,
+}: {
+  definition: UpgradeDefinition
+  event: PointerEvent
+}): void {
+  hoveredCard.value = definition
+  const bounds = mainElement.value?.getBoundingClientRect()
+  if (bounds === undefined) {
+    return
+  }
+  tooltipX.value = Math.min(event.clientX - bounds.left + 16, bounds.width - 310)
+  tooltipY.value = Math.min(event.clientY - bounds.top + 16, bounds.height - 130)
+}
+
+function onCardHoverEnd(): void {
+  hoveredCard.value = null
+}
+
+const weaponDefinitions = UPGRADE_DEFINITIONS.filter(
+  (definition) => definition.category === 'weapon',
+)
+const tacticDefinitions = UPGRADE_DEFINITIONS.filter(
+  (definition) => definition.category === 'tactic',
+)
 
 function buildSandboxStats() {
   const stats = buildStartingStats({ unlockedNodeIds: PRESET_NODE_IDS[treePreset.value] })
@@ -80,6 +119,8 @@ function startGame(): void {
         formation: dummyFormation.value,
         spread: dummySpread.value / 100,
         isMoving: dummiesMoving.value,
+        isMainGunEnabled: isMainGunEnabled.value,
+        dummyHp: dummyHp.value,
       },
     },
   })
@@ -92,6 +133,16 @@ function setFormation({ formation }: { formation: SandboxLayout['formation'] }):
 
 function toggleMotion(): void {
   dummiesMoving.value = dummiesMoving.value === false
+  scheduleRestart()
+}
+
+function toggleMainGun(): void {
+  isMainGunEnabled.value = isMainGunEnabled.value === false
+  scheduleRestart()
+}
+
+function setDummyHp({ hp }: { hp: number | null }): void {
+  dummyHp.value = hp
   scheduleRestart()
 }
 
@@ -160,6 +211,8 @@ interface BenchmarkRow {
 const BENCHMARK_TARGETS: Array<{ cardId: string; source: string }> = [
   { cardId: 'salvo', source: 'main' },
   { cardId: 'flak', source: 'flak' },
+  { cardId: 'flame', source: 'flame' },
+  { cardId: 'devourer', source: 'devourer' },
   { cardId: 'rocket', source: 'rocket' },
   { cardId: 'chain', source: 'chain' },
   { cardId: 'nova', source: 'nova' },
@@ -197,6 +250,10 @@ function measure({ cardId, tier }: { cardId: string; tier: number }): number | n
         formation: dummyFormation.value,
         spread: dummySpread.value / 100,
         isMoving: dummiesMoving.value,
+        // the salvo row measures the 'main' source — the gun must fire here
+        isMainGunEnabled: true,
+        // benchmarks need steady targets
+        dummyHp: null,
       },
     },
   })
@@ -269,20 +326,33 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="flex h-screen">
+  <main ref="mainElement" class="relative flex h-screen">
     <aside
-      class="z-10 flex w-80 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-slate-950/95 p-4"
+      class="z-10 flex w-104 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-slate-950/95 p-4"
     >
       <div class="flex items-center justify-between">
         <RouterLink to="/" class="text-sm font-semibold text-slate-400 hover:text-slate-200">
           ← Home
         </RouterLink>
-        <h1 class="text-sm font-black tracking-widest text-lime-300">TRAINING RANGE</h1>
+        <span class="flex items-center gap-2">
+          <h1 class="text-sm font-black tracking-widest text-lime-300">TRAINING RANGE</h1>
+          <button
+            type="button"
+            class="cursor-pointer rounded px-1 text-sm"
+            :aria-label="isMuted === true ? 'Unmute sound' : 'Mute sound'"
+            @click="toggleMute()"
+          >
+            {{ isMuted === true ? '🔇' : '🔊' }}
+          </button>
+        </span>
       </div>
 
-      <div class="flex flex-col gap-1.5">
-        <p class="text-xs font-bold uppercase tracking-wider text-slate-500">Paragon preset</p>
-        <div class="flex gap-1.5">
+      <!-- ── setup: presets, targets, motion ──────────────────────── -->
+      <div class="flex flex-col gap-2 rounded-xl bg-slate-900/50 p-2.5">
+        <div class="flex items-center gap-1.5">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Paragon
+          </p>
           <button
             v-for="preset in ['none', 'keystones', 'full'] as Array<TreePreset>"
             :key="preset"
@@ -298,11 +368,11 @@ onUnmounted(() => {
             {{ preset }}
           </button>
         </div>
-      </div>
 
-      <div class="flex flex-col gap-1.5">
-        <p class="text-xs font-bold uppercase tracking-wider text-slate-500">Targets</p>
-        <div class="flex gap-1.5">
+        <div class="flex items-center gap-1.5">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Targets
+          </p>
           <button
             v-for="formation in ['field', 'boss'] as Array<SandboxLayout['formation']>"
             :key="formation"
@@ -317,6 +387,24 @@ onUnmounted(() => {
           >
             {{ formation === 'field' ? 'Target field' : 'Single boss' }}
           </button>
+        </div>
+
+        <div class="flex items-center gap-1.5" data-testid="dummy-motion">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Motion
+          </p>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              dummiesMoving === false
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            @click="dummiesMoving === true && toggleMotion()"
+          >
+            Static
+          </button>
           <button
             type="button"
             class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
@@ -325,16 +413,69 @@ onUnmounted(() => {
                 ? 'bg-lime-400 text-slate-950'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             "
-            @click="toggleMotion()"
+            @click="dummiesMoving === false && toggleMotion()"
           >
-            {{ dummiesMoving === true ? 'Moving' : 'Static' }}
+            Moving
           </button>
         </div>
+
+        <div class="flex items-center gap-1.5" data-testid="main-gun-toggle">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Main gun
+          </p>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              isMainGunEnabled === true
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            @click="isMainGunEnabled === false && toggleMainGun()"
+          >
+            Firing
+          </button>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              isMainGunEnabled === false
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            @click="isMainGunEnabled === true && toggleMainGun()"
+          >
+            Silenced
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1.5" data-testid="dummy-hp">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Dummy HP
+          </p>
+          <button
+            v-for="option in DUMMY_HP_OPTIONS"
+            :key="option ?? 'invincible'"
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              dummyHp === option
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            @click="setDummyHp({ hp: option })"
+          >
+            {{ option === null ? '∞' : option }}
+          </button>
+        </div>
+
         <label
           v-if="dummyFormation === 'field'"
           class="flex items-center gap-2 text-xs text-slate-400"
         >
-          Spread
+          <span class="w-16 shrink-0 font-bold uppercase tracking-wider text-slate-500">
+            Spread
+          </span>
           <input
             v-model.number="dummySpread"
             type="range"
@@ -348,49 +489,118 @@ onUnmounted(() => {
         </label>
       </div>
 
+      <!-- ── live dps ─────────────────────────────────────────────── -->
       <div class="flex flex-col gap-1">
-        <p class="text-xs font-bold uppercase tracking-wider text-slate-500">Cards</p>
-        <div
-          v-for="definition in UPGRADE_DEFINITIONS"
-          :key="definition.id"
-          class="flex items-center justify-between gap-2 rounded-lg bg-slate-900/70 px-2.5 py-1.5"
+        <p
+          class="flex items-baseline justify-between text-xs font-bold uppercase tracking-wider text-slate-500"
         >
-          <span
-            class="truncate text-xs font-semibold text-slate-200"
-            :title="definition.description"
+          DPS ({{ (elapsedMs / 1000).toFixed(0) }}s)
+          <span class="text-sm normal-case tracking-normal text-lime-300">
+            Σ {{ totalDps.toFixed(1) }}
+          </span>
+        </p>
+        <div class="grid grid-cols-2 gap-1">
+          <div
+            v-for="entry in statsEntries"
+            :key="entry.source"
+            class="flex items-center justify-between rounded bg-slate-900/70 px-2 py-1 text-xs"
           >
-            {{ definition.name }}
-          </span>
-          <span class="flex items-center gap-1.5">
-            <button
-              type="button"
-              class="h-5 w-5 cursor-pointer rounded bg-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-600"
-              @click="adjustCard({ cardId: definition.id, step: -1 })"
-            >
-              −
-            </button>
-            <span class="w-5 text-center text-xs font-bold text-amber-300">
-              {{ cardStacks[definition.id] ?? 0 }}
+            <span class="truncate text-slate-300">
+              {{ SOURCE_LABELS[entry.source] ?? entry.source }}
             </span>
-            <button
-              type="button"
-              class="h-5 w-5 cursor-pointer rounded bg-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-600"
-              @click="adjustCard({ cardId: definition.id, step: 1 })"
-            >
-              +
-            </button>
-          </span>
+            <span class="font-bold text-slate-100">{{ entry.dps.toFixed(1) }}</span>
+          </div>
+        </div>
+        <p v-if="statsEntries.length === 0" class="text-xs text-slate-600">
+          Add cards to start measuring…
+        </p>
+      </div>
+
+      <!-- ── cards ────────────────────────────────────────────────── -->
+      <div class="flex flex-col gap-1">
+        <p class="flex items-baseline justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Weapons</span>
+          <button
+            type="button"
+            class="cursor-pointer text-xs font-semibold text-red-400 hover:text-red-300"
+            @click="resetAll()"
+          >
+            Reset everything
+          </button>
+        </p>
+        <div class="grid grid-cols-2 gap-1">
+          <div
+            v-for="definition in weaponDefinitions"
+            :key="definition.id"
+            class="flex items-center justify-between gap-1 rounded-lg bg-slate-900/70 px-2 py-1"
+            @pointerenter="(event) => onCardHover({ definition, event })"
+            @pointermove="(event) => onCardHover({ definition, event })"
+            @pointerleave="onCardHoverEnd()"
+          >
+            <span class="truncate text-xs font-semibold text-slate-200">
+              {{ definition.name }}
+            </span>
+            <span class="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                class="h-5 w-5 cursor-pointer rounded bg-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-600"
+                @click="adjustCard({ cardId: definition.id, step: -1 })"
+              >
+                −
+              </button>
+              <span class="w-4 text-center text-xs font-bold text-amber-300">
+                {{ cardStacks[definition.id] ?? 0 }}
+              </span>
+              <button
+                type="button"
+                class="h-5 w-5 cursor-pointer rounded bg-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-600"
+                @click="adjustCard({ cardId: definition.id, step: 1 })"
+              >
+                +
+              </button>
+            </span>
+          </div>
+        </div>
+
+        <p class="mt-1 text-xs font-bold uppercase tracking-wider text-slate-500">
+          Synergy tactics
+        </p>
+        <div class="grid grid-cols-2 gap-1">
+          <div
+            v-for="definition in tacticDefinitions"
+            :key="definition.id"
+            class="flex items-center justify-between gap-1 rounded-lg bg-slate-900/70 px-2 py-1"
+            @pointerenter="(event) => onCardHover({ definition, event })"
+            @pointermove="(event) => onCardHover({ definition, event })"
+            @pointerleave="onCardHoverEnd()"
+          >
+            <span class="truncate text-xs font-semibold text-slate-200">
+              {{ definition.name }}
+            </span>
+            <span class="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                class="h-5 w-5 cursor-pointer rounded bg-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-600"
+                @click="adjustCard({ cardId: definition.id, step: -1 })"
+              >
+                −
+              </button>
+              <span class="w-4 text-center text-xs font-bold text-amber-300">
+                {{ cardStacks[definition.id] ?? 0 }}
+              </span>
+              <button
+                type="button"
+                class="h-5 w-5 cursor-pointer rounded bg-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-600"
+                @click="adjustCard({ cardId: definition.id, step: 1 })"
+              >
+                +
+              </button>
+            </span>
+          </div>
         </div>
       </div>
 
-      <button
-        type="button"
-        class="cursor-pointer rounded-lg border border-red-500/40 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/10"
-        @click="resetAll()"
-      >
-        Reset everything
-      </button>
-
+      <!-- ── benchmark ────────────────────────────────────────────── -->
       <div class="flex flex-col gap-1.5">
         <button
           type="button"
@@ -425,32 +635,28 @@ onUnmounted(() => {
           </tbody>
         </table>
       </div>
-
-      <div class="flex flex-col gap-1">
-        <p
-          class="flex items-baseline justify-between text-xs font-bold uppercase tracking-wider text-slate-500"
-        >
-          DPS ({{ (elapsedMs / 1000).toFixed(0) }}s)
-          <span class="text-sm normal-case tracking-normal text-lime-300">
-            Σ {{ totalDps.toFixed(1) }}
-          </span>
-        </p>
-        <div
-          v-for="entry in statsEntries"
-          :key="entry.source"
-          class="flex items-center justify-between rounded bg-slate-900/70 px-2.5 py-1 text-xs"
-        >
-          <span class="text-slate-300">{{ SOURCE_LABELS[entry.source] ?? entry.source }}</span>
-          <span class="font-bold text-slate-100">{{ entry.dps.toFixed(1) }}</span>
-        </div>
-        <p v-if="statsEntries.length === 0" class="text-xs text-slate-600">
-          Add cards to start measuring…
-        </p>
-      </div>
     </aside>
 
     <div class="relative flex-1">
       <div ref="gameContainer" class="h-full w-full overflow-hidden" />
+    </div>
+
+    <div
+      v-if="hoveredCard !== null"
+      class="pointer-events-none absolute z-30 w-72 rounded-lg border border-slate-700 bg-slate-950/95 p-3 shadow-xl"
+      :style="{ left: `${tooltipX}px`, top: `${tooltipY}px` }"
+      data-testid="card-tooltip"
+    >
+      <p class="flex items-baseline justify-between gap-2">
+        <span class="text-sm font-bold text-slate-100">{{ hoveredCard.name }}</span>
+        <span class="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          {{ hoveredCard.rarity }} {{ hoveredCard.category }}
+        </span>
+      </p>
+      <p class="mt-1 text-xs leading-relaxed text-slate-300">{{ hoveredCard.description }}</p>
+      <p v-if="hoveredSynergyOf !== null" class="mt-1.5 text-xs font-semibold text-fuchsia-300">
+        ⛓ Synergy of {{ hoveredSynergyOf }}
+      </p>
     </div>
   </main>
 </template>

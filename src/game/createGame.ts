@@ -11,11 +11,14 @@ export function createPlanetGame({
   parent: HTMLElement
   sceneData: GameSceneData
 }): Phaser.Game {
+  // a portrait container (mobile) gets a portrait arena; the scene lays its
+  // battlefield out from the actual arena size, so both shapes work
+  const isPortrait = parent.clientHeight > parent.clientWidth
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
-    width: ARENA.width,
-    height: ARENA.height,
+    width: isPortrait === true ? ARENA.portraitWidth : ARENA.width,
+    height: isPortrait === true ? ARENA.portraitHeight : ARENA.height,
     backgroundColor: '#05060f',
     scale: {
       mode: Phaser.Scale.FIT,

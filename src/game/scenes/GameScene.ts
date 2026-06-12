@@ -3,14 +3,20 @@ import Phaser from 'phaser'
 import {
   AIRSTRIKE,
   ARENA,
+  BASE_RUN_STATS,
   BATTERY,
   BFG,
   BULLET,
   CHAIN,
   CLOUD,
+  DEVOURER,
+  ELITE_AFFIXES,
+  ENEMY_AURAS,
   FLAK,
+  FLAME,
   BOSS,
   CLUSTER_BOMBS,
+  FILLER_REWARDS,
   GROUND,
   LANCE,
   LOCKDOWN,
@@ -19,6 +25,7 @@ import {
   ORBITAL_LASER,
   SHATTERPOINT,
   STORM_FRONT,
+  SALVO,
   SYNERGIES,
   RAILGUN,
   ROCKET,
@@ -32,9 +39,18 @@ import {
   pickWeightedDefinition,
   type EnemyDefinition,
 } from '@/game/data/enemies'
-import { countOwnedWeapons, findUpgradeDefinition, rollUpgradeChoices } from '@/game/data/upgrades'
+import {
+  countOwnedWeapons,
+  findUpgradeDefinition,
+  isFillerUpgradeId,
+  rollUpgradeChoices,
+} from '@/game/data/upgrades'
 import { gameEventBus } from '@/game/eventBus'
+import { damageNumbersEnabled, screenShakeEnabled } from '@/game/settings'
+import { soundEngine } from '@/game/sound'
 import type { GameSceneData, RunStats, SandboxLayout } from '@/game/types'
+
+type EliteAffix = 'swift' | 'regen' | 'split'
 
 interface EnemyUnit {
   image: Phaser.GameObjects.Image
@@ -51,15 +67,62 @@ interface EnemyUnit {
   frozenRemainingMs: number
   /** bosses periodically deploy adds */
   spawnerAccumulatorMs: number
+  /** shared timer for periodic behaviors: boss bolts, mender heals, elite regen */
+  attackAccumulatorMs: number
+  /** wardens spawn with a shield that absorbs the first hit outright */
+  hasShield: boolean
+  /** dancers weave side to side while falling — breaks intercept prediction */
+  zigzag: { baseX: number; amplitudeX: number; omegaRadPerSec: number; phase: number } | null
+  /** elites roll a random modifier */
+  affix: EliteAffix | null
   /** training dummies on patrol sweep side to side */
   patrol: { baseX: number; amplitudeX: number; phase: number } | null
   isDead: boolean
 }
 
-interface SweepBeam {
+/** a plasma bolt dropped by a hovering mothership */
+interface BossBoltUnit {
+  image: Phaser.GameObjects.Image
+  velocityY: number
+  isDead: boolean
+}
+
+/** a stasis missile in flight — detonates into a freezing pulse on contact */
+interface StasisMissileUnit {
+  image: Phaser.GameObjects.Image
+  velocityX: number
+  velocityY: number
+  trailAccumulatorMs: number
+  isDead: boolean
+}
+
+/** a devourer payload in flight, before it finds a host */
+interface NaniteShotUnit {
+  image: Phaser.GameObjects.Image
+  velocityX: number
+  velocityY: number
+  budget: number
+  isDead: boolean
+}
+
+/** a devourer swarm eating its host; leaps onward when the host dies */
+interface SwarmUnit {
+  host: EnemyUnit
+  remainingBudget: number
+  /** last known host position, so the swarm can leap even after the corpse is culled */
   x: number
-  endX: number
-  directionX: number
+  y: number
+  puffAccumulatorMs: number
+  isDead: boolean
+}
+
+/** a thermal lance beam anchored at the main cannon, sweeping an arc across the sky */
+interface SweepBeam {
+  originX: number
+  originY: number
+  angleRad: number
+  endAngleRad: number
+  directionSign: 1 | -1
   damage: number
   hitEnemies: Set<EnemyUnit>
   isDead: boolean
@@ -67,7 +130,24 @@ interface SweepBeam {
 
 interface MineUnit {
   image: Phaser.GameObjects.Image
+  /** the balloon holding the mine on station */
+  balloonImage: Phaser.GameObjects.Image
+  /** the mine's logical altitude — the balloon slowly lifts it toward the ceiling */
+  baseY: number
+  /** randomizes the bobbing motion so mines don't sway in lockstep */
+  bobPhase: number
   armRemainingMs: number
+  isDead: boolean
+}
+
+/** a mine lobbed from a cannon, arcing under gravity toward its station point */
+interface MineShellUnit {
+  image: Phaser.GameObjects.Image
+  velocityX: number
+  velocityY: number
+  targetX: number
+  targetY: number
+  remainingMs: number
   isDead: boolean
 }
 
@@ -97,6 +177,8 @@ interface BulletUnit {
   velocityX: number
   velocityY: number
   damage: number
+  /** main-gun bullets roll their crit at fire time; carried for the damage popup */
+  isCrit: boolean
   pierceLeft: number
   traveledPx: number
   maxTravelPx: number
@@ -159,13 +241,11 @@ interface BuildingUnit {
   isDestroyed: boolean
 }
 
-const GROUND_Y = ARENA.height - GROUND.height
-const CANNON_Y = GROUND_Y - 16
 const SPAWN_Y = -30
 const BARREL_LENGTH = 30
-/** deploy order for the primary cannon and the three Auxiliary Cannon upgrades */
-const CANNON_X_POSITIONS = [640, 940, 280, 1180] as const
-const BUILDING_X_POSITIONS = [190, 360, 520, 800, 1080] as const
+/** deploy order for the primary cannon and the three Auxiliary Cannon upgrades, as fractions of arena width */
+const CANNON_X_FRACTIONS = [0.5, 0.734, 0.219, 0.922] as const
+const BUILDING_X_FRACTIONS = [0.148, 0.281, 0.406, 0.625, 0.844] as const
 const BUILDING_HEIGHTS = [62, 96, 74, 108, 84] as const
 /** which building collapses first, second, … as integrity falls */
 const BUILDING_DESTRUCTION_ORDER = [4, 0, 3, 1, 2] as const
@@ -179,8 +259,19 @@ const AEGIS_MAX_ALPHA = 0.9
 const MAX_NANITE_DRONES = 3
 /** at high game speed the sim runs in sub-steps this size, so fast bullets cannot tunnel through enemies */
 const MAX_SIM_STEP_MS = 20
+/** largest real-time frame delta the sim honors — a backgrounded tab hiccups one frame instead of fast-forwarding the whole pause */
+const MAX_FRAME_DELTA_MS = 100
 /** seconds per full side-to-side sweep of a patrolling training dummy */
 const DUMMY_PATROL_PERIOD_S = 5
+/** killable training dummies pop back up after this long */
+const DUMMY_RESPAWN_MS = 1_500
+/** gravity pulling lobbed mine shells back down, px/s² */
+const MINE_SHELL_GRAVITY = 700
+/** how far above its mine the balloon floats */
+const MINE_BALLOON_OFFSET_Y = 24
+/** balloons slowly lift their mines, then hold just under the top of the sky */
+const MINE_RISE_SPEED_PX_PER_SEC = 12
+const MINE_CEILING_Y = 80
 
 const COOLDOWN_BAR_WIDTH = 30
 const WEAPON_BAR_COLORS: Record<string, number> = {
@@ -189,11 +280,13 @@ const WEAPON_BAR_COLORS: Record<string, number> = {
   rocket: 0xfb923c,
   chain: 0x93c5fd,
   flak: 0xfdba74,
+  flame: 0xf97316,
+  devourer: 0x86efac,
   lockdown: 0x7dd3fc,
   railgun: 0xe879f9,
   airstrike: 0xa3e635,
   bfg: 0x4ade80,
-  lance: 0xf87171,
+  lance: 0xfacc15,
   mines: 0xfde047,
   'orbital-laser': 0xf43f5e,
   aegis: 0x38bdf8,
@@ -204,6 +297,8 @@ const WEAPON_BAR_LABELS: Record<string, string> = {
   rocket: 'RKT',
   chain: 'ARC',
   flak: 'FLAK',
+  flame: 'FIRE',
+  devourer: 'SWRM',
   lockdown: 'LOCK',
   railgun: 'RAIL',
   airstrike: 'AIR',
@@ -232,6 +327,14 @@ export class GameScene extends Phaser.Scene {
   private stats!: RunStats
   private stardustMultiplier = 1
 
+  // battlefield layout, derived from the actual arena size (portrait or landscape)
+  private arenaWidth: number = ARENA.width
+  private arenaHeight: number = ARENA.height
+  private groundY: number = ARENA.height - GROUND.height
+  private cannonY: number = ARENA.height - GROUND.height - 16
+  private cannonXs: Array<number> = []
+  private buildingXs: Array<number> = []
+
   private hp = 0
   private level = 1
   private xp = 0
@@ -239,6 +342,8 @@ export class GameScene extends Phaser.Scene {
   private wave = 1
   private kills = 0
   private elapsedMs = 0
+  /** banked by Stardust Cache filler picks, paid out at run end */
+  private bonusStardust = 0
 
   private enemies: Array<EnemyUnit> = []
   private bullets: Array<BulletUnit> = []
@@ -254,7 +359,6 @@ export class GameScene extends Phaser.Scene {
   private airstrikeAccumulatorMs = 0
   private bfgAccumulatorMs = 0
   private lanceAccumulatorMs = 0
-  private mineAccumulatorMs = 0
   private orbitalAccumulatorMs = 0
   private stormAccumulatorMs = 0
   private aegisAccumulatorMs = 0
@@ -263,20 +367,48 @@ export class GameScene extends Phaser.Scene {
   private upgradeStacks = new Map<string, number>()
   private pendingLevelUps = 0
   private hasActiveOffer = false
+  /** run-wide reroll budget: base stats plus the paragon reroll nodes */
+  private runRerollsLeft = 0
+  /** run-wide banish budget — zero unless paragon banish nodes are unlocked */
+  private runBanishesLeft = 0
+  /** card ids struck from this run's pool */
+  private banishedCardIds = new Set<string>()
   private isRunOver = false
   private speedMultiplier = 1
 
   /** training-range mode: static invincible dummies, no waves, dps reporting */
   private isSandbox = false
-  private sandboxLayout: SandboxLayout = { formation: 'field', spread: 1, isMoving: false }
+  private sandboxLayout: SandboxLayout = {
+    formation: 'field',
+    spread: 1,
+    isMoving: false,
+    isMainGunEnabled: true,
+    dummyHp: null,
+  }
   private damageBySource = new Map<string, number>()
   private sandboxStatsAccumulatorMs = 0
+  private floatingTextCount = 0
+  /** killed dummies queue up here and pop back at their station */
+  private dummyRespawnQueue: Array<{
+    x: number
+    y: number
+    radius: number
+    scale: number
+    patrolAmplitude: number
+    patrolPhase: number
+    remainingMs: number
+  }> = []
 
   private planes: Array<PlaneUnit> = []
   private bombs: Array<BombUnit> = []
   private sweeps: Array<SweepBeam> = []
   private sweepGraphics!: Phaser.GameObjects.Graphics
   private mines: Array<MineUnit> = []
+  private mineShells: Array<MineShellUnit> = []
+  private bossBolts: Array<BossBoltUnit> = []
+  private naniteShots: Array<NaniteShotUnit> = []
+  private swarms: Array<SwarmUnit> = []
+  private stasisMissiles: Array<StasisMissileUnit> = []
   private orbitalStrikes: Array<OrbitalStrikeUnit> = []
   private ionTrails: Array<IonTrailUnit> = []
   private naniteDrones: Array<Phaser.GameObjects.Image> = []
@@ -290,12 +422,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   init(data: GameSceneData): void {
+    this.arenaWidth = this.scale.width
+    this.arenaHeight = this.scale.height
+    this.groundY = this.arenaHeight - GROUND.height
+    this.cannonY = this.groundY - 16
+    this.cannonXs = CANNON_X_FRACTIONS.map((fraction) => Math.round(fraction * this.arenaWidth))
+    this.buildingXs = BUILDING_X_FRACTIONS.map((fraction) => Math.round(fraction * this.arenaWidth))
     this.stats = { ...data.startingStats }
     this.stardustMultiplier = data.stardustMultiplier
+    this.runRerollsLeft = this.stats.rerollsPerRun
+    this.runBanishesLeft = this.stats.banishesPerRun
     this.hp = this.stats.maxHp
     this.xpToNext = this.xpRequiredForLevel({ level: this.level })
     this.isSandbox = data.mode === 'sandbox'
-    this.sandboxLayout = data.sandboxLayout ?? { formation: 'field', spread: 1, isMoving: false }
+    this.sandboxLayout = data.sandboxLayout ?? {
+      formation: 'field',
+      spread: 1,
+      isMoving: false,
+      isMainGunEnabled: true,
+      dummyHp: null,
+    }
     if (data.initialCardStacks !== undefined) {
       for (const [cardId, stacks] of Object.entries(data.initialCardStacks)) {
         if (stacks > 0) {
@@ -315,7 +461,7 @@ export class GameScene extends Phaser.Scene {
     // the shield ring is the aegis keystone made visible: hidden without it,
     // dim while recharging, bright when a block is ready
     this.shieldImage = this.add
-      .image(CANNON_X_POSITIONS[0], CANNON_Y, 'shield')
+      .image(this.cannonXs[0], this.cannonY, 'shield')
       .setDepth(DEPTHS.shield)
       .setVisible(this.stats.aegisIntervalMs !== null)
       .setAlpha(AEGIS_MIN_ALPHA)
@@ -334,6 +480,18 @@ export class GameScene extends Phaser.Scene {
         event: 'upgrade-chosen',
         handler: (payload) => {
           this.applyUpgrade({ upgradeId: payload.upgradeId })
+        },
+      }),
+      gameEventBus.on({
+        event: 'reroll-requested',
+        handler: () => {
+          this.rerollActiveOffer()
+        },
+      }),
+      gameEventBus.on({
+        event: 'banish-requested',
+        handler: (payload) => {
+          this.banishCard({ upgradeId: payload.upgradeId })
         },
       }),
       gameEventBus.on({
@@ -356,12 +514,14 @@ export class GameScene extends Phaser.Scene {
           if (this.isSandbox === false) {
             return
           }
+          soundEngine.setSuppressed({ isSuppressed: true })
           let remainingMs = payload.gameMs
           while (remainingMs > 0) {
             const stepMs = Math.min(remainingMs, MAX_SIM_STEP_MS)
             this.simulateStep({ delta: stepMs })
             remainingMs -= stepMs
           }
+          soundEngine.setSuppressed({ isSuppressed: false })
           this.emitSandboxStats()
         },
       }),
@@ -381,6 +541,7 @@ export class GameScene extends Phaser.Scene {
         unsubscribe()
       }
       this.busUnsubscribes = []
+      soundEngine.stopMusic()
     }
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       unsubscribeAll()
@@ -389,6 +550,7 @@ export class GameScene extends Phaser.Scene {
       unsubscribeAll()
     })
 
+    soundEngine.startMusic()
     this.emitHudSnapshot()
   }
 
@@ -397,7 +559,7 @@ export class GameScene extends Phaser.Scene {
       return
     }
 
-    let remainingMs = delta * this.speedMultiplier
+    let remainingMs = Math.min(delta, MAX_FRAME_DELTA_MS) * this.speedMultiplier
     while (remainingMs > 0 && this.canSimulate() === true) {
       const stepMs = Math.min(remainingMs, MAX_SIM_STEP_MS)
       this.simulateStep({ delta: stepMs })
@@ -467,8 +629,26 @@ export class GameScene extends Phaser.Scene {
     this.bombs = []
     for (const mine of this.mines) {
       mine.image.destroy()
+      mine.balloonImage.destroy()
     }
     this.mines = []
+    for (const shell of this.mineShells) {
+      shell.image.destroy()
+    }
+    this.mineShells = []
+    for (const bolt of this.bossBolts) {
+      bolt.image.destroy()
+    }
+    this.bossBolts = []
+    for (const shot of this.naniteShots) {
+      shot.image.destroy()
+    }
+    this.naniteShots = []
+    this.swarms = []
+    for (const missile of this.stasisMissiles) {
+      missile.image.destroy()
+    }
+    this.stasisMissiles = []
     for (const drone of this.naniteDrones) {
       drone.destroy()
     }
@@ -486,6 +666,7 @@ export class GameScene extends Phaser.Scene {
     this.sweeps = []
     this.orbitalStrikes = []
     this.ionTrails = []
+    this.dummyRespawnQueue = []
 
     this.stats = { ...stats }
     this.sandboxLayout = layout
@@ -496,7 +677,6 @@ export class GameScene extends Phaser.Scene {
     this.airstrikeAccumulatorMs = 0
     this.bfgAccumulatorMs = 0
     this.lanceAccumulatorMs = 0
-    this.mineAccumulatorMs = 0
     this.orbitalAccumulatorMs = 0
     this.stormAccumulatorMs = 0
     this.aegisAccumulatorMs = 0
@@ -515,7 +695,7 @@ export class GameScene extends Phaser.Scene {
 
     if (layout.formation === 'boss') {
       this.spawnDummy({
-        x: ARENA.width / 2,
+        x: this.arenaWidth / 2,
         y: 300,
         radius: 40,
         scale: 2.5,
@@ -536,7 +716,7 @@ export class GameScene extends Phaser.Scene {
         const offsetFromCenter = (index - (row.count - 1) / 2) * 190 * layout.spread
         dummyIndex += 1
         this.spawnDummy({
-          x: ARENA.width / 2 + offsetFromCenter,
+          x: this.arenaWidth / 2 + offsetFromCenter,
           y: row.y,
           radius: ENEMY_DEFINITIONS.dummy.radius,
           scale: 1,
@@ -562,12 +742,13 @@ export class GameScene extends Phaser.Scene {
     patrolAmplitude: number
     patrolPhase: number
   }): void {
+    const hp = this.sandboxLayout.dummyHp ?? Number.POSITIVE_INFINITY
     const image = this.add.image(x, y, 'enemy-dummy').setScale(scale).setDepth(DEPTHS.units)
     this.enemies.push({
       image,
       definition: ENEMY_DEFINITIONS.dummy,
-      hp: Number.POSITIVE_INFINITY,
-      maxHp: Number.POSITIVE_INFINITY,
+      hp,
+      maxHp: hp,
       speed: 0,
       contactDamage: 0,
       xpValue: 0,
@@ -577,14 +758,47 @@ export class GameScene extends Phaser.Scene {
       isSlowed: false,
       frozenRemainingMs: 0,
       spawnerAccumulatorMs: 0,
+      attackAccumulatorMs: 0,
+      hasShield: false,
+      zigzag: null,
+      affix: null,
       patrol:
         patrolAmplitude > 0 ? { baseX: x, amplitudeX: patrolAmplitude, phase: patrolPhase } : null,
       isDead: false,
     })
   }
 
+  /** runs on sim time, so respawns also work inside synchronous fast-forwards */
+  private tickDummyRespawns({ delta }: { delta: number }): void {
+    if (this.dummyRespawnQueue.length === 0) {
+      return
+    }
+    const due: Array<(typeof this.dummyRespawnQueue)[number]> = []
+    for (const pending of this.dummyRespawnQueue) {
+      pending.remainingMs -= delta
+      if (pending.remainingMs <= 0) {
+        due.push(pending)
+      }
+    }
+    if (due.length === 0) {
+      return
+    }
+    this.dummyRespawnQueue = this.dummyRespawnQueue.filter((pending) => pending.remainingMs > 0)
+    for (const pending of due) {
+      this.spawnDummy(pending)
+    }
+  }
+
   private canSimulate(): boolean {
     return this.isRunOver === false && this.hasActiveOffer === false
+  }
+
+  /** all camera shake funnels through here so the settings toggle can disable it */
+  private shakeCamera({ durationMs, intensity }: { durationMs: number; intensity: number }): void {
+    if (screenShakeEnabled.value === false) {
+      return
+    }
+    this.cameras.main.shake(durationMs, intensity)
   }
 
   private simulateStep({ delta }: { delta: number }): void {
@@ -594,11 +808,15 @@ export class GameScene extends Phaser.Scene {
     if (this.isSandbox === false) {
       this.advanceWaveClock({ delta })
       this.spawnFromClock({ delta })
+    } else {
+      this.tickDummyRespawns({ delta })
     }
     this.fireFromClock({ delta })
     this.moveBullets({ delta })
     this.moveEnemies({ delta })
     this.updateCannonWeapons({ delta })
+    this.updateDevourerSwarms({ delta })
+    this.moveStasisMissiles({ delta })
     this.moveRockets({ delta })
     this.updateAirstrike({ delta })
     this.updateBfg({ delta })
@@ -627,11 +845,14 @@ export class GameScene extends Phaser.Scene {
       if (this.wave % BOSS.everyNWaves === 0) {
         this.spawnEnemy({
           definition: ENEMY_DEFINITIONS.mothership,
-          spawnX: ARENA.width / 2 + (Math.random() * 2 - 1) * 200,
-          impactX: CANNON_X_POSITIONS[0],
+          spawnX: this.arenaWidth / 2 + (Math.random() * 2 - 1) * 200,
         })
       } else if (this.wave % WAVES.eliteEveryNWaves === 0) {
-        this.spawnEnemy({ definition: ENEMY_DEFINITIONS.elite })
+        const affixes: Array<EliteAffix> = ['swift', 'regen', 'split']
+        this.spawnEnemy({
+          definition: ENEMY_DEFINITIONS.elite,
+          affix: affixes[Math.floor(Math.random() * affixes.length)],
+        })
       }
     }
   }
@@ -651,6 +872,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private fireFromClock({ delta }: { delta: number }): void {
+    // the training range can silence the main guns to isolate one ability
+    if (this.isSandbox === true && this.sandboxLayout.isMainGunEnabled === false) {
+      return
+    }
     for (const cannon of this.cannons) {
       cannon.fireAccumulatorMs += delta
       if (cannon.fireAccumulatorMs < this.stats.fireIntervalMs) {
@@ -703,13 +928,15 @@ export class GameScene extends Phaser.Scene {
     spawnX,
     spawnY,
     impactX,
+    affix = null,
   }: {
     definition: EnemyDefinition
     spawnX?: number
     spawnY?: number
     impactX?: number
+    affix?: EliteAffix | null
   }): void {
-    const x = spawnX ?? Math.random() * ARENA.width
+    const x = spawnX ?? Math.random() * this.arenaWidth
     const y = spawnY ?? SPAWN_Y
     const targetXs = this.listImpactTargetXs()
     const targetX = targetXs[Math.floor(Math.random() * targetXs.length)]
@@ -718,19 +945,28 @@ export class GameScene extends Phaser.Scene {
     const waveScale = Math.pow(WAVES.hpGrowthPerWave, this.wave - 1)
     const speedScale = Math.min(2, Math.pow(WAVES.speedGrowthPerWave, this.wave - 1))
 
-    const fallAngle = Math.atan2(GROUND_Y - y, resolvedImpactX - x)
+    // dancers fall straight down and weave; motherships descend to a hover
+    const fallsStraight = definition.kind === 'dancer' || definition.kind === 'mothership'
+    const fallAngle =
+      fallsStraight === true ? Math.PI / 2 : Math.atan2(this.groundY - y, resolvedImpactX - x)
     const image = this.add
       .image(x, y, definition.textureKey)
       .setDepth(DEPTHS.units)
-      .setRotation(definition.kind === 'mothership' ? 0 : fallAngle)
+      .setRotation(definition.kind === 'mothership' || definition.kind === 'dancer' ? 0 : fallAngle)
 
-    const hp = definition.hp * waveScale
+    let hp = definition.hp * waveScale
+    let speed = definition.speed * speedScale
+    if (affix === 'swift') {
+      speed *= ELITE_AFFIXES.swift.speedMult
+      hp *= ELITE_AFFIXES.swift.hpMult
+    }
+
     this.enemies.push({
       image,
       definition,
       hp,
       maxHp: hp,
-      speed: definition.speed * speedScale,
+      speed,
       contactDamage: definition.contactDamage,
       xpValue: definition.xpValue,
       radius: definition.radius,
@@ -739,6 +975,18 @@ export class GameScene extends Phaser.Scene {
       isSlowed: false,
       frozenRemainingMs: 0,
       spawnerAccumulatorMs: 0,
+      attackAccumulatorMs: 0,
+      hasShield: definition.kind === 'warden',
+      zigzag:
+        definition.kind === 'dancer'
+          ? {
+              baseX: x,
+              amplitudeX: 50 + Math.random() * 45,
+              omegaRadPerSec: 2.6 + Math.random() * 1.4,
+              phase: Math.random() * Math.PI * 2,
+            }
+          : null,
+      affix,
       patrol: null,
       isDead: false,
     })
@@ -807,7 +1055,58 @@ export class GameScene extends Phaser.Scene {
         }
       }
       enemy.isSlowed = isSlowed
+      // affix tint survives the white damage flash by re-applying every frame
+      if (
+        enemy.affix !== null &&
+        enemy.isSlowed === false &&
+        enemy.image.tintMode === Phaser.TintModes.MULTIPLY
+      ) {
+        enemy.image.setTint(ELITE_AFFIXES[enemy.affix].tint)
+      }
       const speed = this.effectiveEnemySpeed({ enemy })
+
+      // the mothership descends to its hover line, then drifts and bombards
+      if (enemy.definition.kind === 'mothership') {
+        if (enemy.image.y < BOSS.hoverY) {
+          enemy.directionX = 0
+          enemy.directionY = 1
+          enemy.image.y += speed * seconds
+        } else {
+          if (enemy.directionY !== 0 || enemy.directionX === 0) {
+            enemy.directionY = 0
+            enemy.directionX = Math.random() < 0.5 ? -1 : 1
+            enemy.speed = BOSS.driftSpeedPxPerSec
+          }
+          if (enemy.image.x < 140) {
+            enemy.directionX = 1
+          } else if (enemy.image.x > this.arenaWidth - 140) {
+            enemy.directionX = -1
+          }
+          enemy.image.x += enemy.directionX * speed * seconds
+        }
+        continue
+      }
+
+      // dancers: vertical fall with a sideways weave the intercept solver can't pin
+      if (enemy.zigzag !== null) {
+        const speedFraction = enemy.speed > 0 ? speed / enemy.speed : 0
+        enemy.zigzag.phase += enemy.zigzag.omegaRadPerSec * speedFraction * seconds
+        enemy.image.y += speed * seconds
+        enemy.image.x = enemy.zigzag.baseX + Math.sin(enemy.zigzag.phase) * enemy.zigzag.amplitudeX
+        // expose the instantaneous velocity so intercepts stay honest
+        const velocityX =
+          enemy.zigzag.amplitudeX *
+          enemy.zigzag.omegaRadPerSec *
+          speedFraction *
+          Math.cos(enemy.zigzag.phase)
+        const totalSpeed = Math.hypot(velocityX, speed)
+        if (totalSpeed > 0) {
+          enemy.directionX = velocityX / totalSpeed
+          enemy.directionY = speed / totalSpeed
+        }
+        continue
+      }
+
       enemy.image.x += enemy.directionX * speed * seconds
       enemy.image.y += enemy.directionY * speed * seconds
     }
@@ -835,9 +1134,9 @@ export class GameScene extends Phaser.Scene {
       bullet.traveledPx += Math.hypot(bullet.velocityX, bullet.velocityY) * seconds
       const isOutOfBounds =
         bullet.image.x < -BULLET_CULL_MARGIN ||
-        bullet.image.x > ARENA.width + BULLET_CULL_MARGIN ||
+        bullet.image.x > this.arenaWidth + BULLET_CULL_MARGIN ||
         bullet.image.y < -BULLET_CULL_MARGIN ||
-        bullet.image.y > GROUND_Y
+        bullet.image.y > this.groundY
       if (bullet.traveledPx >= bullet.maxTravelPx || isOutOfBounds === true) {
         if (bullet.isFlakShell === true) {
           // the timed fuse: burst at end of flight instead of fizzling
@@ -851,6 +1150,11 @@ export class GameScene extends Phaser.Scene {
 
   // ── weapons ────────────────────────────────────────────────────────
 
+  /** enemies above the top edge haven't entered the battlefield yet — weapons hold fire */
+  private isEnemyOnField({ enemy }: { enemy: EnemyUnit }): boolean {
+    return enemy.image.y + enemy.radius > 0
+  }
+
   /** the falling enemies closest to the ground win; ties to the base's fate are settled low */
   private findMostUrgentEnemiesInRange({
     originX,
@@ -863,7 +1167,7 @@ export class GameScene extends Phaser.Scene {
   }): Array<EnemyUnit> {
     const rangeSq = this.stats.range ** 2
     const inRange = this.enemies.filter((enemy) => {
-      if (enemy.isDead === true) {
+      if (enemy.isDead === true || this.isEnemyOnField({ enemy }) === false) {
         return false
       }
       const distanceSq = (enemy.image.x - originX) ** 2 + (enemy.image.y - originY) ** 2
@@ -946,6 +1250,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private fireVolley({ cannon, targets }: { cannon: CannonUnit; targets: Array<EnemyUnit> }): void {
+    soundEngine.play({ name: 'shot' })
     const muzzleY = cannon.y - 6
     const count = this.stats.projectileCount
     /* example jitter when shots double up on a target: ±0.035 rad ≈ ±2° */
@@ -968,8 +1273,10 @@ export class GameScene extends Phaser.Scene {
         cannon.barrelImage.setRotation(angle)
       }
       const isCrit = Math.random() < this.stats.critChance
-      const damage =
-        isCrit === true ? this.stats.damage * this.stats.critMultiplier : this.stats.damage
+      // salvo: only the first shot of a volley hits at full strength
+      const salvoFactor = index === 0 ? 1 : SALVO.extraShotDamageFactor
+      const baseDamage = this.stats.damage * salvoFactor
+      const damage = isCrit === true ? baseDamage * this.stats.critMultiplier : baseDamage
 
       const image = this.add
         .image(
@@ -988,6 +1295,7 @@ export class GameScene extends Phaser.Scene {
         velocityX: Math.cos(angle) * this.stats.projectileSpeed,
         velocityY: Math.sin(angle) * this.stats.projectileSpeed,
         damage,
+        isCrit,
         pierceLeft: this.stats.pierce,
         traveledPx: 0,
         maxTravelPx: this.stats.range,
@@ -1045,12 +1353,335 @@ export class GameScene extends Phaser.Scene {
         velocityX: Math.cos(angle) * shellSpeed,
         velocityY: Math.sin(angle) * shellSpeed,
         damage: this.stats.damage,
+        isCrit: false,
         pierceLeft: 0,
         traveledPx: 0,
         maxTravelPx: fuseTravelPx,
         isFlakShell: true,
         hitEnemies: new Set(),
         isDead: false,
+      })
+    }
+    return true
+  }
+
+  // ── devourer swarm ─────────────────────────────────────────────────
+
+  private fireDevourer({ cannon }: { cannon: CannonUnit }): boolean {
+    // prefer a fresh host: the most urgent enemy not already being devoured
+    const hosted = new Set(
+      this.swarms.filter((swarm) => swarm.isDead === false).map((swarm) => swarm.host),
+    )
+    const candidates = this.findMostUrgentEnemiesInRange({
+      originX: cannon.x,
+      originY: cannon.y,
+      count: 8,
+    })
+    if (candidates.length === 0) {
+      return false
+    }
+    const target = candidates.find((enemy) => hosted.has(enemy) === false) ?? candidates[0]
+
+    const muzzleY = cannon.y - 6
+    const angle = this.computeInterceptAngle({
+      originX: cannon.x,
+      originY: muzzleY,
+      target,
+      projectileSpeed: DEVOURER.projectileSpeed,
+    })
+    cannon.barrelImage.setRotation(angle)
+    soundEngine.play({ name: 'launch' })
+    const level = this.stats.devourerLevel
+    const image = this.add
+      .image(
+        cannon.x + Math.cos(angle) * BARREL_LENGTH,
+        muzzleY + Math.sin(angle) * BARREL_LENGTH,
+        'nanite-shot',
+      )
+      .setDepth(DEPTHS.bullets)
+    this.naniteShots.push({
+      image,
+      velocityX: Math.cos(angle) * DEVOURER.projectileSpeed,
+      velocityY: Math.sin(angle) * DEVOURER.projectileSpeed,
+      budget:
+        this.stats.damage * (DEVOURER.baseBudgetMult + DEVOURER.budgetMultPerLevel * (level - 1)),
+      isDead: false,
+    })
+    return true
+  }
+
+  private devourerLeapRadius(): number {
+    const base =
+      DEVOURER.leapRadiusPx + DEVOURER.leapRadiusPerLevel * (this.stats.devourerLevel - 1)
+    if (this.stats.mitosisLevel <= 0) {
+      return base
+    }
+    return base * (1 + SYNERGIES.mitosis.leapRadiusBonusPerLevel * (this.stats.mitosisLevel - 1))
+  }
+
+  private attachSwarm({ host, budget }: { host: EnemyUnit; budget: number }): void {
+    this.swarms.push({
+      host,
+      remainingBudget: budget,
+      x: host.image.x,
+      y: host.image.y,
+      puffAccumulatorMs: 0,
+      isDead: false,
+    })
+  }
+
+  private updateDevourerSwarms({ delta }: { delta: number }): void {
+    const seconds = delta / 1_000
+
+    // payloads in flight: straight line until they touch any living invader
+    for (const shot of this.naniteShots) {
+      if (shot.isDead === true) {
+        continue
+      }
+      shot.image.x += shot.velocityX * seconds
+      shot.image.y += shot.velocityY * seconds
+      const isOutOfBounds =
+        shot.image.x < -BULLET_CULL_MARGIN ||
+        shot.image.x > this.arenaWidth + BULLET_CULL_MARGIN ||
+        shot.image.y < -BULLET_CULL_MARGIN ||
+        shot.image.y > this.groundY
+      if (isOutOfBounds === true) {
+        shot.isDead = true
+        shot.image.destroy()
+        continue
+      }
+      for (const enemy of this.enemies) {
+        if (enemy.isDead === true) {
+          continue
+        }
+        const hitRange = enemy.radius + 6
+        const distanceSq = (enemy.image.x - shot.image.x) ** 2 + (enemy.image.y - shot.image.y) ** 2
+        if (distanceSq <= hitRange ** 2) {
+          shot.isDead = true
+          shot.image.destroy()
+          this.attachSwarm({ host: enemy, budget: shot.budget })
+          break
+        }
+      }
+    }
+    this.naniteShots = this.naniteShots.filter((shot) => shot.isDead === false)
+
+    if (this.swarms.length === 0) {
+      return
+    }
+    const drainPerSecond =
+      this.stats.damage *
+      (DEVOURER.baseDrainMult + DEVOURER.drainMultPerLevel * (this.stats.devourerLevel - 1))
+    const spawnedSwarms: Array<SwarmUnit> = []
+
+    for (const swarm of this.swarms) {
+      if (swarm.isDead === true) {
+        continue
+      }
+
+      if (swarm.host.isDead === false) {
+        swarm.x = swarm.host.image.x
+        swarm.y = swarm.host.image.y
+        const tick = drainPerSecond * seconds
+        const hostHpBefore = swarm.host.hp
+        this.damageEnemy({ enemy: swarm.host, amount: tick, source: 'devourer' })
+        // the budget is spent on hp actually consumed — overkill carries over
+        swarm.remainingBudget -= Math.min(tick, Math.max(0, hostHpBefore))
+        if (swarm.remainingBudget <= 0) {
+          swarm.isDead = true
+          continue
+        }
+        swarm.puffAccumulatorMs += delta
+        if (swarm.puffAccumulatorMs >= 160) {
+          swarm.puffAccumulatorMs = 0
+          this.spawnExhaustPuff({
+            x: swarm.x + (Math.random() * 2 - 1) * swarm.host.radius,
+            y: swarm.y + (Math.random() * 2 - 1) * swarm.host.radius,
+            color: 0x4ade80,
+          })
+        }
+      }
+
+      // host died (by us or anything else): the leftovers leap onward
+      if (swarm.host.isDead === true) {
+        swarm.isDead = true
+        if (swarm.remainingBudget <= 0) {
+          continue
+        }
+        const liveSwarmCount =
+          this.swarms.filter((candidate) => candidate.isDead === false).length +
+          spawnedSwarms.length
+        const splitCount =
+          this.stats.mitosisLevel > 0 && liveSwarmCount < DEVOURER.maxActiveSwarms
+            ? SYNERGIES.mitosis.splitCount
+            : 1
+        const nextHosts = this.findLeapTargets({
+          x: swarm.x,
+          y: swarm.y,
+          count: splitCount,
+          exclude: spawnedSwarms.map((candidate) => candidate.host),
+        })
+        for (const nextHost of nextHosts) {
+          this.drawSwarmLeap({
+            fromX: swarm.x,
+            fromY: swarm.y,
+            toX: nextHost.image.x,
+            toY: nextHost.image.y,
+          })
+          // mitosis: every child carries the FULL remaining budget
+          spawnedSwarms.push({
+            host: nextHost,
+            remainingBudget: swarm.remainingBudget,
+            x: nextHost.image.x,
+            y: nextHost.image.y,
+            puffAccumulatorMs: 0,
+            isDead: false,
+          })
+        }
+      }
+    }
+
+    this.swarms = [...this.swarms.filter((swarm) => swarm.isDead === false), ...spawnedSwarms]
+  }
+
+  /** nearest living invaders within leap range, preferring distinct fresh hosts */
+  private findLeapTargets({
+    x,
+    y,
+    count,
+    exclude,
+  }: {
+    x: number
+    y: number
+    count: number
+    exclude: Array<EnemyUnit>
+  }): Array<EnemyUnit> {
+    const leapRadiusSq = this.devourerLeapRadius() ** 2
+    const inRange = this.enemies
+      .filter((enemy) => {
+        if (enemy.isDead === true || exclude.includes(enemy) === true) {
+          return false
+        }
+        return (enemy.image.x - x) ** 2 + (enemy.image.y - y) ** 2 <= leapRadiusSq
+      })
+      .sort(
+        (a, b) =>
+          (a.image.x - x) ** 2 +
+          (a.image.y - y) ** 2 -
+          ((b.image.x - x) ** 2 + (b.image.y - y) ** 2),
+      )
+    return inRange.slice(0, count)
+  }
+
+  /** a green streak as the swarm leaps between hosts */
+  private drawSwarmLeap({
+    fromX,
+    fromY,
+    toX,
+    toY,
+  }: {
+    fromX: number
+    fromY: number
+    toX: number
+    toY: number
+  }): void {
+    const dot = this.add.circle(fromX, fromY, 4, 0x4ade80, 0.95).setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: dot,
+      x: toX,
+      y: toY,
+      duration: 140,
+      ease: 'Cubic.easeIn',
+      onComplete: () => {
+        dot.destroy()
+      },
+    })
+    const trail = this.add.graphics().setDepth(DEPTHS.effects)
+    trail.lineStyle(2, 0x86efac, 0.6)
+    trail.lineBetween(fromX, fromY, toX, toY)
+    this.tweens.add({
+      targets: trail,
+      alpha: 0,
+      duration: 240,
+      onComplete: () => {
+        trail.destroy()
+      },
+    })
+  }
+
+  // ── flamethrower ───────────────────────────────────────────────────
+
+  /** a short-range cone burst: instant damage plus a gout of flame particles */
+  private fireFlamethrower({ cannon }: { cannon: CannonUnit }): boolean {
+    const level = this.stats.flameLevel
+    const reach = FLAME.rangePx + FLAME.rangePerLevel * (level - 1)
+    const muzzleY = cannon.y - 6
+
+    // aim at the most urgent enemy inside the flamethrower's own short reach
+    let target: EnemyUnit | null = null
+    for (const enemy of this.enemies) {
+      if (enemy.isDead === true) {
+        continue
+      }
+      const distanceSq = (enemy.image.x - cannon.x) ** 2 + (enemy.image.y - muzzleY) ** 2
+      if (distanceSq > reach ** 2) {
+        continue
+      }
+      if (target === null || enemy.image.y > target.image.y) {
+        target = enemy
+      }
+    }
+    if (target === null) {
+      return false
+    }
+
+    const aimAngle = Math.atan2(target.image.y - muzzleY, target.image.x - cannon.x)
+    cannon.barrelImage.setRotation(aimAngle)
+    soundEngine.play({ name: 'flame' })
+
+    const damage =
+      this.stats.damage * (FLAME.baseDamageMult + FLAME.damageMultPerLevel * (level - 1))
+    for (const enemy of this.enemies) {
+      if (enemy.isDead === true) {
+        continue
+      }
+      const deltaX = enemy.image.x - cannon.x
+      const deltaY = enemy.image.y - muzzleY
+      if (deltaX ** 2 + deltaY ** 2 > (reach + enemy.radius) ** 2) {
+        continue
+      }
+      const offAxis = Math.abs(Phaser.Math.Angle.Wrap(Math.atan2(deltaY, deltaX) - aimAngle))
+      if (offAxis <= FLAME.coneHalfAngleRad) {
+        this.damageEnemy({ enemy, amount: damage, source: 'flame' })
+      }
+    }
+
+    // the gout: flame puffs racing out along the cone
+    const puffCount = 9 + 2 * (level - 1)
+    const flameColors = [0xfde047, 0xfb923c, 0xef4444]
+    for (let index = 0; index < puffCount; index += 1) {
+      const puffAngle = aimAngle + (Math.random() * 2 - 1) * FLAME.coneHalfAngleRad
+      const distance = reach * (0.25 + Math.random() * 0.75)
+      const puff = this.add
+        .circle(
+          cannon.x + Math.cos(aimAngle) * BARREL_LENGTH,
+          muzzleY + Math.sin(aimAngle) * BARREL_LENGTH,
+          3 + Math.random() * 3,
+          flameColors[Math.floor(Math.random() * flameColors.length)],
+          0.85,
+        )
+        .setDepth(DEPTHS.effects)
+      this.tweens.add({
+        targets: puff,
+        x: cannon.x + Math.cos(puffAngle) * distance,
+        y: muzzleY + Math.sin(puffAngle) * distance,
+        radius: 8 + Math.random() * 7,
+        alpha: 0,
+        duration: 280 + Math.random() * 160,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          puff.destroy()
+        },
       })
     }
     return true
@@ -1087,6 +1718,7 @@ export class GameScene extends Phaser.Scene {
     triggerEnemy: EnemyUnit | null
   }): void {
     bullet.isDead = true
+    soundEngine.play({ name: 'flak' })
     const burstX = bullet.image.x
     const burstY = bullet.image.y
 
@@ -1138,6 +1770,7 @@ export class GameScene extends Phaser.Scene {
         velocityX: Math.cos(angle) * fragmentSpeed,
         velocityY: Math.sin(angle) * fragmentSpeed,
         damage: fragmentDamage,
+        isCrit: false,
         pierceLeft: 0,
         traveledPx: 0,
         maxTravelPx: FLAK.fragmentTravelPx * travelJitter,
@@ -1155,10 +1788,11 @@ export class GameScene extends Phaser.Scene {
     cannon: CannonUnit
     damageMultiplier?: number
   }): boolean {
+    soundEngine.play({ name: 'nova' })
     const novaStacks = Math.max(1, this.upgradeStacks.get('nova') ?? 1)
     const originX = cannon.x
     const ring = this.add
-      .circle(originX, CANNON_Y, BATTERY.shieldRadius)
+      .circle(originX, this.cannonY, BATTERY.shieldRadius)
       .setStrokeStyle(4 + 1.5 * (novaStacks - 1), 0x67e8f9, 0.9)
       .setDepth(DEPTHS.effects)
     this.tweens.add({
@@ -1181,14 +1815,16 @@ export class GameScene extends Phaser.Scene {
       if (enemy.isDead === true) {
         continue
       }
-      const distanceSq = (enemy.image.x - originX) ** 2 + (enemy.image.y - CANNON_Y) ** 2
+      const distanceSq = (enemy.image.x - originX) ** 2 + (enemy.image.y - this.cannonY) ** 2
       if (distanceSq <= (NOVA.maxRadius + enemy.radius) ** 2) {
         if (stasisFreezeMs > 0) {
           this.applyFreeze({ enemy, durationMs: stasisFreezeMs })
         }
         this.damageEnemy({
           enemy,
-          amount: this.stats.novaDamage * damageMultiplier,
+          // novaDamage is a flat base — global damage bonuses scale it like every other weapon
+          amount:
+            this.stats.novaDamage * damageMultiplier * (this.stats.damage / BASE_RUN_STATS.damage),
           source: 'nova',
         })
       }
@@ -1240,12 +1876,12 @@ export class GameScene extends Phaser.Scene {
           break
         }
       }
-      if (rocket.isDead === false && rocket.image.y >= GROUND_Y - 6) {
+      if (rocket.isDead === false && rocket.image.y >= this.groundY - 6) {
         this.explodeRocket({ rocket })
       }
       const isOutOfBounds =
         rocket.image.x < -BULLET_CULL_MARGIN ||
-        rocket.image.x > ARENA.width + BULLET_CULL_MARGIN ||
+        rocket.image.x > this.arenaWidth + BULLET_CULL_MARGIN ||
         rocket.image.y < -BULLET_CULL_MARGIN
       if (rocket.isDead === false && isOutOfBounds === true) {
         rocket.isDead = true
@@ -1260,7 +1896,7 @@ export class GameScene extends Phaser.Scene {
     let bestTarget: EnemyUnit | null = null
     let bestNeighborCount = -1
     for (const candidate of candidates) {
-      if (candidate.isDead === true) {
+      if (candidate.isDead === true || this.isEnemyOnField({ enemy: candidate }) === false) {
         continue
       }
       let neighborCount = 0
@@ -1288,7 +1924,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private fireRocket({ cannon }: { cannon: CannonUnit }): boolean {
-    const target = this.findClusterTarget()
+    // only aim at clusters inside the cannon's targeting range
+    const rangeSq = this.stats.range ** 2
+    const inRange = this.enemies.filter((enemy) => {
+      if (enemy.isDead === true) {
+        return false
+      }
+      return (enemy.image.x - cannon.x) ** 2 + (enemy.image.y - (cannon.y - 6)) ** 2 <= rangeSq
+    })
+    const target = inRange.length > 0 ? this.findClusterTarget({ pool: inRange }) : null
     if (target === null) {
       return false
     }
@@ -1336,6 +1980,7 @@ export class GameScene extends Phaser.Scene {
 
   private explodeRocket({ rocket }: { rocket: RocketUnit }): void {
     rocket.isDead = true
+    soundEngine.play({ name: 'explosion' })
     const blastX = rocket.image.x
     const blastY = rocket.image.y
 
@@ -1364,7 +2009,7 @@ export class GameScene extends Phaser.Scene {
         shockRing.destroy()
       },
     })
-    this.cameras.main.shake(90, 0.003)
+    this.shakeCamera({ durationMs: 90, intensity: 0.003 })
 
     for (const enemy of this.enemies) {
       if (enemy.isDead === true) {
@@ -1389,7 +2034,10 @@ export class GameScene extends Phaser.Scene {
         }
         this.deployMine({
           x: blastX + (Math.random() * 2 - 1) * rocket.blastRadius,
-          y: Math.min(GROUND_Y - 80, blastY + (Math.random() * 2 - 1) * rocket.blastRadius * 0.6),
+          y: Math.min(
+            this.groundY - 80,
+            blastY + (Math.random() * 2 - 1) * rocket.blastRadius * 0.6,
+          ),
         })
       }
     }
@@ -1398,17 +2046,17 @@ export class GameScene extends Phaser.Scene {
   // ── tesla arc ──────────────────────────────────────────────────────
 
   private fireTeslaArc({ cannon }: { cannon: CannonUnit }): boolean {
-    const seeds = this.findMostUrgentEnemiesInRange({
+    const anchors = this.findMostUrgentEnemiesInRange({
       originX: cannon.x,
       originY: cannon.y,
       count: 1,
     })
-    if (seeds.length === 0) {
+    if (anchors.length === 0) {
       return false
     }
 
     const maxStruck = CHAIN.baseChains + CHAIN.chainsPerLevel * (this.stats.chainLevel - 1)
-    const struck: Array<EnemyUnit> = [seeds[0]]
+    const struck: Array<EnemyUnit> = [anchors[0]]
     while (struck.length < maxStruck) {
       const tail = struck[struck.length - 1]
       const next = this.findNearestChainTarget({ from: tail, exclude: struck })
@@ -1456,6 +2104,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawLightningBolt({ points }: { points: Array<{ x: number; y: number }> }): void {
+    soundEngine.play({ name: 'zap' })
     const level = Math.max(1, this.stats.chainLevel)
     const graphics = this.add.graphics().setDepth(DEPTHS.effects)
     // higher tiers arc fatter, brighter, and with a second offset filament
@@ -1521,6 +2170,15 @@ export class GameScene extends Phaser.Scene {
     if (this.stats.flakLevel > 0) {
       weaponIds.push('flak')
     }
+    if (this.stats.flameLevel > 0) {
+      weaponIds.push('flame')
+    }
+    if (this.stats.devourerLevel > 0) {
+      weaponIds.push('devourer')
+    }
+    if (this.stats.mineLevel > 0) {
+      weaponIds.push('mines')
+    }
     if (this.stats.rocketLevel > 0) {
       weaponIds.push('rocket')
     }
@@ -1540,10 +2198,31 @@ export class GameScene extends Phaser.Scene {
   }
 
   private weaponIntervalMs({ weaponId }: { weaponId: string }): number {
+    const base = this.baseWeaponIntervalMs({ weaponId })
+    // the aegis shield is defensive, not a weapon system — autoloaders skip it
+    if (weaponId === 'aegis') {
+      return base
+    }
+    return base * this.stats.weaponCooldownFactor
+  }
+
+  private baseWeaponIntervalMs({ weaponId }: { weaponId: string }): number {
     if (weaponId === 'flak') {
       return Math.max(
         FLAK.minIntervalMs,
         FLAK.baseIntervalMs - FLAK.intervalStepMs * (this.stats.flakLevel - 1),
+      )
+    }
+    if (weaponId === 'flame') {
+      return Math.max(
+        FLAME.minIntervalMs,
+        FLAME.baseIntervalMs - FLAME.intervalStepMs * (this.stats.flameLevel - 1),
+      )
+    }
+    if (weaponId === 'devourer') {
+      return Math.max(
+        DEVOURER.minIntervalMs,
+        DEVOURER.baseIntervalMs - DEVOURER.intervalStepMs * (this.stats.devourerLevel - 1),
       )
     }
     if (weaponId === 'rocket') {
@@ -1636,6 +2315,15 @@ export class GameScene extends Phaser.Scene {
     if (weaponId === 'flak') {
       return this.fireFlakShell({ cannon })
     }
+    if (weaponId === 'flame') {
+      return this.fireFlamethrower({ cannon })
+    }
+    if (weaponId === 'devourer') {
+      return this.fireDevourer({ cannon })
+    }
+    if (weaponId === 'mines') {
+      return this.fireMineSalvo({ cannon })
+    }
     if (weaponId === 'rocket') {
       return this.fireRocket({ cannon })
     }
@@ -1656,38 +2344,133 @@ export class GameScene extends Phaser.Scene {
 
   // ── lock down ──────────────────────────────────────────────────────
 
+  /** launches a stasis missile at the most urgent unfrozen invader */
   private fireLockdown({ cannon }: { cannon: CannonUnit }): boolean {
-    const targetCount =
-      LOCKDOWN.baseTargets + LOCKDOWN.targetsPerLevel * (this.stats.lockdownLevel - 1)
     const targets = this.findMostUrgentEnemiesInRange({
       originX: cannon.x,
       originY: cannon.y,
-      count: targetCount,
+      count: 6,
     }).filter((enemy) => enemy.frozenRemainingMs <= 0)
     if (targets.length === 0) {
       return false
     }
 
-    const freezeMs =
-      LOCKDOWN.baseFreezeMs + LOCKDOWN.freezeMsPerLevel * (this.stats.lockdownLevel - 1)
-    for (const enemy of targets) {
-      this.applyFreeze({ enemy, durationMs: freezeMs })
-      const stasisRing = this.add
-        .circle(enemy.image.x, enemy.image.y, enemy.radius + 4)
-        .setStrokeStyle(2 + 0.6 * (this.stats.lockdownLevel - 1), 0x7dd3fc, 0.95)
-        .setDepth(DEPTHS.effects)
-      this.tweens.add({
-        targets: stasisRing,
-        radius: enemy.radius + 12 + 3 * (this.stats.lockdownLevel - 1),
-        alpha: 0,
-        duration: 420,
-        ease: 'Cubic.easeOut',
-        onComplete: () => {
-          stasisRing.destroy()
-        },
-      })
-    }
+    const target = targets[0]
+    const muzzleY = cannon.y - 6
+    const angle = this.computeInterceptAngle({
+      originX: cannon.x,
+      originY: muzzleY,
+      target,
+      projectileSpeed: LOCKDOWN.missileSpeedPxPerSec,
+    })
+    cannon.barrelImage.setRotation(angle)
+    soundEngine.play({ name: 'launch' })
+    const image = this.add
+      .image(
+        cannon.x + Math.cos(angle) * BARREL_LENGTH,
+        muzzleY + Math.sin(angle) * BARREL_LENGTH,
+        'stasis-missile',
+      )
+      .setRotation(angle)
+      .setDepth(DEPTHS.bullets)
+    this.stasisMissiles.push({
+      image,
+      velocityX: Math.cos(angle) * LOCKDOWN.missileSpeedPxPerSec,
+      velocityY: Math.sin(angle) * LOCKDOWN.missileSpeedPxPerSec,
+      trailAccumulatorMs: 0,
+      isDead: false,
+    })
     return true
+  }
+
+  private moveStasisMissiles({ delta }: { delta: number }): void {
+    const seconds = delta / 1_000
+    for (const missile of this.stasisMissiles) {
+      if (missile.isDead === true) {
+        continue
+      }
+      missile.image.x += missile.velocityX * seconds
+      missile.image.y += missile.velocityY * seconds
+      missile.trailAccumulatorMs += delta
+      if (missile.trailAccumulatorMs >= 60) {
+        missile.trailAccumulatorMs = 0
+        this.spawnExhaustPuff({ x: missile.image.x, y: missile.image.y, color: 0x7dd3fc })
+      }
+
+      for (const enemy of this.enemies) {
+        if (enemy.isDead === true) {
+          continue
+        }
+        const hitRange = enemy.radius + 8
+        const distanceSq =
+          (enemy.image.x - missile.image.x) ** 2 + (enemy.image.y - missile.image.y) ** 2
+        if (distanceSq <= hitRange ** 2) {
+          this.detonateStasisPulse({ missile })
+          break
+        }
+      }
+      if (missile.isDead === false && missile.image.y >= this.groundY - 6) {
+        this.detonateStasisPulse({ missile })
+      }
+      const isOutOfBounds =
+        missile.image.x < -BULLET_CULL_MARGIN ||
+        missile.image.x > this.arenaWidth + BULLET_CULL_MARGIN ||
+        missile.image.y < -BULLET_CULL_MARGIN
+      if (missile.isDead === false && isOutOfBounds === true) {
+        missile.isDead = true
+        missile.image.destroy()
+      }
+    }
+    this.stasisMissiles = this.stasisMissiles.filter((missile) => missile.isDead === false)
+  }
+
+  /** the visible pulse: an expanding ring that flash-freezes everything it washes over */
+  private detonateStasisPulse({ missile }: { missile: StasisMissileUnit }): void {
+    missile.isDead = true
+    const pulseX = missile.image.x
+    const pulseY = missile.image.y
+    missile.image.destroy()
+    soundEngine.play({ name: 'freeze' })
+
+    const level = this.stats.lockdownLevel
+    const pulseRadius = LOCKDOWN.pulseRadius + LOCKDOWN.pulseRadiusPerLevel * (level - 1)
+    const freezeMs = LOCKDOWN.baseFreezeMs + LOCKDOWN.freezeMsPerLevel * (level - 1)
+
+    const flash = this.add.circle(pulseX, pulseY, 10, 0xbae6fd, 0.6).setDepth(DEPTHS.effects)
+    const ring = this.add
+      .circle(pulseX, pulseY, 10)
+      .setStrokeStyle(3 + 0.8 * (level - 1), 0x7dd3fc, 0.95)
+      .setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: flash,
+      radius: pulseRadius * 0.7,
+      alpha: 0,
+      duration: 320,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        flash.destroy()
+      },
+    })
+    this.tweens.add({
+      targets: ring,
+      radius: pulseRadius,
+      alpha: 0,
+      duration: 420,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        ring.destroy()
+      },
+    })
+
+    for (const enemy of this.enemies) {
+      if (enemy.isDead === true) {
+        continue
+      }
+      const distanceSq = (enemy.image.x - pulseX) ** 2 + (enemy.image.y - pulseY) ** 2
+      if (distanceSq <= (pulseRadius + enemy.radius) ** 2) {
+        this.applyFreeze({ enemy, durationMs: freezeMs })
+      }
+    }
   }
 
   // ── rail gun ───────────────────────────────────────────────────────
@@ -1710,6 +2493,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private fireRailBeam({ cannon, target }: { cannon: CannonUnit; target: EnemyUnit }): void {
+    soundEngine.play({ name: 'railgun' })
     const level = this.stats.railgunLevel
     const muzzleY = cannon.y - 6
     const angle = Math.atan2(target.image.y - muzzleY, target.image.x - cannon.x)
@@ -1843,6 +2627,16 @@ export class GameScene extends Phaser.Scene {
       }
       plane.image.x += plane.velocityX * seconds
       plane.image.y += plane.velocityY * seconds
+      // hard altitude floor/ceiling: a diving sortie levels off instead of
+      // flying into the ground (or off the top of the sky)
+      const minAltitudeY = 90
+      const maxAltitudeY = this.groundY - 150
+      if (plane.image.y < minAltitudeY || plane.image.y > maxAltitudeY) {
+        plane.image.y = Phaser.Math.Clamp(plane.image.y, minAltitudeY, maxAltitudeY)
+        plane.velocityY = 0
+        plane.image.setRotation(Math.atan2(0, plane.velocityX))
+        plane.image.setFlipY(plane.velocityX < 0)
+      }
       plane.trailAccumulatorMs += delta
       if (plane.trailAccumulatorMs >= 70) {
         plane.trailAccumulatorMs = 0
@@ -1852,7 +2646,7 @@ export class GameScene extends Phaser.Scene {
           color: 0xcbd5e1,
         })
       }
-      const isOverField = plane.image.x > 40 && plane.image.x < ARENA.width - 40
+      const isOverField = plane.image.x > 40 && plane.image.x < this.arenaWidth - 40
       if (isOverField === true) {
         plane.dropAccumulatorMs += delta
         if (plane.dropAccumulatorMs >= AIRSTRIKE.dropIntervalMs) {
@@ -1893,7 +2687,7 @@ export class GameScene extends Phaser.Scene {
           }
         }
       }
-      const isOffscreen = plane.image.x < -80 || plane.image.x > ARENA.width + 80
+      const isOffscreen = plane.image.x < -80 || plane.image.x > this.arenaWidth + 80
       if (isOffscreen === true) {
         if (plane.passesRemaining > 1) {
           // bank around and strafe back the other way on a fresh diagonal
@@ -1903,7 +2697,7 @@ export class GameScene extends Phaser.Scene {
           plane.image.y = Phaser.Math.Clamp(
             plane.image.y + (Math.random() * 2 - 1) * 80,
             110,
-            GROUND_Y - 220,
+            this.groundY - 220,
           )
           plane.image.setRotation(Math.atan2(plane.velocityY, plane.velocityX))
           plane.image.setFlipY(plane.velocityX < 0)
@@ -1922,7 +2716,7 @@ export class GameScene extends Phaser.Scene {
       bomb.image.x += bomb.velocityX * seconds
       bomb.image.y += AIRSTRIKE.bombFallSpeedPxPerSec * seconds
       bomb.fuseRemainingMs -= delta
-      if (bomb.fuseRemainingMs <= 0 || bomb.image.y >= GROUND_Y - 4) {
+      if (bomb.fuseRemainingMs <= 0 || bomb.image.y >= this.groundY - 4) {
         bomb.isDead = true
         this.spawnBlast({
           x: bomb.image.x,
@@ -1943,7 +2737,7 @@ export class GameScene extends Phaser.Scene {
   private spawnStrafingPlane(): void {
     const level = Math.max(1, this.stats.airstrikeLevel)
     const isLeftToRight = Math.random() < 0.5
-    const startX = isLeftToRight === true ? -60 : ARENA.width + 60
+    const startX = isLeftToRight === true ? -60 : this.arenaWidth + 60
     const velocityX =
       isLeftToRight === true ? AIRSTRIKE.planeSpeedPxPerSec : -AIRSTRIKE.planeSpeedPxPerSec
     // each sortie crosses on its own diagonal: climbing, level, or diving
@@ -2014,6 +2808,7 @@ export class GameScene extends Phaser.Scene {
     damage: number
     source: string
   }): void {
+    soundEngine.play({ name: 'explosion' })
     const fireball = this.add.circle(x, y, 10, 0xfb923c, 0.7).setDepth(DEPTHS.effects)
     const shockRing = this.add
       .circle(x, y, 10)
@@ -2068,6 +2863,7 @@ export class GameScene extends Phaser.Scene {
       return
     }
     this.bfgAccumulatorMs = 0
+    soundEngine.play({ name: 'bfg' })
 
     const level = this.stats.bfgLevel
     const mainCannon = this.cannons[0]
@@ -2085,10 +2881,10 @@ export class GameScene extends Phaser.Scene {
     })
     const flash = this.add
       .rectangle(
-        ARENA.width / 2,
-        GROUND_Y / 2,
-        ARENA.width,
-        GROUND_Y,
+        this.arenaWidth / 2,
+        this.groundY / 2,
+        this.arenaWidth,
+        this.groundY,
         0x4ade80,
         Math.min(0.5, 0.28 + 0.06 * (level - 1)),
       )
@@ -2103,7 +2899,7 @@ export class GameScene extends Phaser.Scene {
         flash.destroy()
       },
     })
-    this.cameras.main.shake(300, 0.008)
+    this.shakeCamera({ durationMs: 300, intensity: 0.008 })
 
     const bfgDamage =
       this.stats.damage * (BFG.baseDamageMult + BFG.damageMultPerLevel * (this.stats.bfgLevel - 1))
@@ -2132,12 +2928,21 @@ export class GameScene extends Phaser.Scene {
       this.lanceAccumulatorMs += delta
       const interval = this.weaponIntervalMs({ weaponId: 'lance' })
       if (this.lanceAccumulatorMs >= interval) {
-        const target = this.findClusterTarget()
+        // the lance only reaches as far as the cannon's targeting range
+        const cannon = this.cannons[0]
+        const rangeSq = this.stats.range ** 2
+        const inRange = this.enemies.filter((enemy) => {
+          if (enemy.isDead === true) {
+            return false
+          }
+          return (enemy.image.x - cannon.x) ** 2 + (enemy.image.y - (cannon.y - 10)) ** 2 <= rangeSq
+        })
+        const target = inRange.length > 0 ? this.findClusterTarget({ pool: inRange }) : null
         if (target === null) {
           this.lanceAccumulatorMs = interval
         } else {
           this.lanceAccumulatorMs = 0
-          this.fireThermalLance({ centerX: target.image.x })
+          this.fireThermalLance({ target })
         }
       }
     }
@@ -2147,17 +2952,31 @@ export class GameScene extends Phaser.Scene {
       if (sweep.isDead === true) {
         continue
       }
-      sweep.x += LANCE.sweepSpeedPxPerSec * seconds * sweep.directionX
-      const isFinished = sweep.directionX > 0 ? sweep.x >= sweep.endX : sweep.x <= sweep.endX
+      sweep.angleRad +=
+        Phaser.Math.DegToRad(LANCE.sweepSpeedDegPerSec) * seconds * sweep.directionSign
+      const isFinished =
+        sweep.directionSign > 0
+          ? sweep.angleRad >= sweep.endAngleRad
+          : sweep.angleRad <= sweep.endAngleRad
       if (isFinished === true) {
         sweep.isDead = true
         continue
       }
+      // ray test: everything the beam line passes over takes one hit per sweep
+      const directionX = Math.cos(sweep.angleRad)
+      const directionY = Math.sin(sweep.angleRad)
       for (const enemy of this.enemies) {
         if (enemy.isDead === true || sweep.hitEnemies.has(enemy) === true) {
           continue
         }
-        if (Math.abs(enemy.image.x - sweep.x) <= enemy.radius + LANCE.beamHalfWidthPx) {
+        const toEnemyX = enemy.image.x - sweep.originX
+        const toEnemyY = enemy.image.y - sweep.originY
+        const along = toEnemyX * directionX + toEnemyY * directionY
+        if (along < BARREL_LENGTH || along > this.stats.range + enemy.radius) {
+          continue
+        }
+        const perpendicular = Math.abs(toEnemyX * directionY - toEnemyY * directionX)
+        if (perpendicular <= enemy.radius + LANCE.beamHalfWidthPx) {
           sweep.hitEnemies.add(enemy)
           this.damageEnemy({ enemy, amount: sweep.damage, source: 'lance' })
         }
@@ -2166,43 +2985,70 @@ export class GameScene extends Phaser.Scene {
     this.sweeps = this.sweeps.filter((sweep) => sweep.isDead === false)
   }
 
-  private fireThermalLance({ centerX }: { centerX: number }): void {
+  /** ignite the lance at the main cannon, sweeping its arc across the target cluster */
+  private fireThermalLance({ target }: { target: EnemyUnit }): void {
+    soundEngine.play({ name: 'lance' })
     const level = this.stats.lanceLevel
-    const span = LANCE.sweepSpanBase + LANCE.sweepSpanPerLevel * (level - 1)
-    const directionX = Math.random() < 0.5 ? 1 : -1
-    const startX = centerX - (span / 2) * directionX
+    const cannon = this.cannons[0]
+    const originX = cannon.x
+    const originY = cannon.y - 10
+
+    const spanRad = Phaser.Math.DegToRad(
+      LANCE.sweepArcDegBase + LANCE.sweepArcDegPerLevel * (level - 1),
+    )
+    const centerAngle = Math.atan2(target.image.y - originY, target.image.x - originX)
+    const directionSign: 1 | -1 = Math.random() < 0.5 ? 1 : -1
+    // keep the whole arc pointed into the sky (angles between just-above-horizon left and right)
+    const clampAngle = (angle: number): number => Phaser.Math.Clamp(angle, -Math.PI + 0.12, -0.12)
+
+    // ignition flare at the muzzle
+    const flare = this.add.circle(originX, originY, 10, 0xfefce8, 0.95).setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: flare,
+      radius: 26 + 5 * level,
+      alpha: 0,
+      duration: 320,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        flare.destroy()
+      },
+    })
+    this.shakeCamera({ durationMs: 140, intensity: 0.004 })
+
     this.sweeps.push({
-      x: startX,
-      endX: startX + span * directionX,
-      directionX,
+      originX,
+      originY,
+      angleRad: clampAngle(centerAngle - (spanRad / 2) * directionSign),
+      endAngleRad: clampAngle(centerAngle + (spanRad / 2) * directionSign),
+      directionSign,
       damage: this.stats.damage * (LANCE.baseDamageMult + LANCE.damageMultPerLevel * (level - 1)),
       hitEnemies: new Set(),
       isDead: false,
     })
   }
 
-  /** redrawn every frame: a column of light from orbit down to the ground */
+  /** redrawn every frame: the lance is a laser firing out of the gun, sweeping the sky */
   private drawSweepBeams(): void {
     this.sweepGraphics.clear()
     const level = Math.max(1, this.stats.lanceLevel)
+    // the drawn beam ends where its reach does — the cannon's targeting range
+    const beamLength = this.stats.range
     for (const sweep of this.sweeps) {
       if (sweep.isDead === true) {
         continue
       }
-      this.sweepGraphics.fillStyle(0xf87171, 0.16)
-      this.sweepGraphics.fillRect(
-        sweep.x - LANCE.beamHalfWidthPx - 3 * level,
-        0,
-        (LANCE.beamHalfWidthPx + 3 * level) * 2,
-        GROUND_Y,
-      )
-      this.sweepGraphics.fillStyle(0xfecaca, 0.55)
-      this.sweepGraphics.fillRect(sweep.x - 3, 0, 6, GROUND_Y)
-      this.sweepGraphics.fillStyle(0xffffff, 0.95)
-      this.sweepGraphics.fillRect(sweep.x - 1, 0, 2, GROUND_Y)
-      // molten glow where the beam meets the ground
-      this.sweepGraphics.fillStyle(0xfb923c, 0.7)
-      this.sweepGraphics.fillEllipse(sweep.x, GROUND_Y, 26 + 6 * level, 10)
+      const endX = sweep.originX + Math.cos(sweep.angleRad) * beamLength
+      const endY = sweep.originY + Math.sin(sweep.angleRad) * beamLength
+      // rail-gun-width beam, but yellow: soft glow plus a bright core
+      this.sweepGraphics.lineStyle(7 + 3 * (level - 1), 0xfde047, 0.3)
+      this.sweepGraphics.lineBetween(sweep.originX, sweep.originY, endX, endY)
+      this.sweepGraphics.lineStyle(2 + 0.8 * (level - 1), 0xfefce8, 1)
+      this.sweepGraphics.lineBetween(sweep.originX, sweep.originY, endX, endY)
+      // hot muzzle point where the beam leaves the gun
+      this.sweepGraphics.fillStyle(0xfefce8, 0.95)
+      this.sweepGraphics.fillCircle(sweep.originX, sweep.originY, 5 + level)
+      this.sweepGraphics.fillStyle(0xfde047, 0.35)
+      this.sweepGraphics.fillCircle(sweep.originX, sweep.originY, 10 + 2 * level)
     }
 
     // ion rail lines linger and fade where rail beams fired
@@ -2253,33 +3099,61 @@ export class GameScene extends Phaser.Scene {
 
   // ── mine layer ─────────────────────────────────────────────────────
 
-  private updateMines({ delta }: { delta: number }): void {
-    if (this.stats.mineLevel > 0) {
-      this.mineAccumulatorMs += delta
-      const interval = this.weaponIntervalMs({ weaponId: 'mines' })
-      if (this.mineAccumulatorMs >= interval) {
-        if (this.mines.length >= this.maxActiveMines()) {
-          this.mineAccumulatorMs = interval
-        } else {
-          this.mineAccumulatorMs = 0
-          const dropCount =
-            MINES.minesPerDrop +
-            MINES.minesPerDropPerLevel * (this.stats.mineLevel - 1) +
-            SYNERGIES.fabricators.extraMinesPerDropPerLevel * this.stats.fabricatorLevel
-          for (let index = 0; index < dropCount; index += 1) {
-            if (this.mines.length >= this.maxActiveMines()) {
-              break
-            }
-            this.deployMine()
-          }
-        }
-      }
+  /** one cannon's mine volley — runs on the per-cannon weapon engine */
+  private fireMineSalvo({ cannon }: { cannon: CannonUnit }): boolean {
+    if (this.mines.length + this.mineShells.length >= this.maxActiveMines()) {
+      return false
     }
+    const dropCount = Math.floor(
+      MINES.minesPerDrop +
+        MINES.minesPerDropPerLevel * (this.stats.mineLevel - 1) +
+        SYNERGIES.fabricators.extraMinesPerDropPerLevel * this.stats.fabricatorLevel,
+    )
+    for (let index = 0; index < dropCount; index += 1) {
+      if (this.mines.length + this.mineShells.length >= this.maxActiveMines()) {
+        break
+      }
+      this.launchMineShell({
+        cannon,
+        x: 120 + Math.random() * (this.arenaWidth - 240),
+        y: 230 + Math.random() * (this.groundY - 360),
+      })
+    }
+    return true
+  }
+
+  private updateMines({ delta }: { delta: number }): void {
+    // shells arc under gravity, then pop a balloon mine at their station point
+    const seconds = delta / 1_000
+    for (const shell of this.mineShells) {
+      if (shell.isDead === true) {
+        continue
+      }
+      shell.remainingMs -= delta
+      if (shell.remainingMs <= 0) {
+        shell.isDead = true
+        shell.image.destroy()
+        this.deployMine({ x: shell.targetX, y: shell.targetY })
+        continue
+      }
+      shell.image.x += shell.velocityX * seconds
+      shell.image.y += shell.velocityY * seconds
+      shell.velocityY += MINE_SHELL_GRAVITY * seconds
+      shell.image.rotation += 4 * seconds
+    }
+    this.mineShells = this.mineShells.filter((shell) => shell.isDead === false)
 
     for (const mine of this.mines) {
       if (mine.isDead === true) {
         continue
       }
+      // the balloon slowly lifts the mine, holding just under the top of the sky
+      if (mine.baseY > MINE_CEILING_Y) {
+        mine.baseY = Math.max(MINE_CEILING_Y, mine.baseY - MINE_RISE_SPEED_PX_PER_SEC * seconds)
+      }
+      const bobOffsetY = Math.sin((this.elapsedMs / 1_000) * 1.6 + mine.bobPhase) * 3
+      mine.image.y = mine.baseY + bobOffsetY
+      mine.balloonImage.y = mine.baseY + bobOffsetY - MINE_BALLOON_OFFSET_Y
       if (mine.armRemainingMs > 0) {
         mine.armRemainingMs -= delta
         continue
@@ -2301,7 +3175,7 @@ export class GameScene extends Phaser.Scene {
               (MINES.baseDamageMult + MINES.damageMultPerLevel * (this.stats.mineLevel - 1)),
             source: 'mines',
           })
-          mine.image.destroy()
+          this.destroyMine({ mine })
           break
         }
       }
@@ -2309,22 +3183,58 @@ export class GameScene extends Phaser.Scene {
     this.mines = this.mines.filter((mine) => mine.isDead === false)
   }
 
-  /** auto-fabricators synergy raises the active-mine ceiling */
+  private destroyMine({ mine }: { mine: MineUnit }): void {
+    this.tweens.killTweensOf(mine.image)
+    this.tweens.killTweensOf(mine.balloonImage)
+    mine.image.destroy()
+    mine.balloonImage.destroy()
+  }
+
+  /** ceiling grows with every deployed cannon; auto-fabricators raises it further */
   private maxActiveMines(): number {
     return (
-      MINES.maxActive + SYNERGIES.fabricators.extraMaxActivePerLevel * this.stats.fabricatorLevel
+      MINES.maxActivePerCannon * this.cannons.length +
+      SYNERGIES.fabricators.extraMaxActivePerLevel * this.stats.fabricatorLevel
     )
   }
 
+  /** lob a mine from the firing cannon on a parabolic arc to its station point */
+  private launchMineShell({ cannon, x, y }: { cannon: CannonUnit; x: number; y: number }): void {
+    const originX = cannon.x
+    const originY = cannon.y - 6
+    const flightSeconds = 0.8 + Math.random() * 0.4
+    const velocityX = (x - originX) / flightSeconds
+    // solve the parabola so the shell lands exactly on target after flightSeconds
+    const velocityY = (y - originY) / flightSeconds - 0.5 * MINE_SHELL_GRAVITY * flightSeconds
+    cannon.barrelImage.setRotation(Math.atan2(velocityY, velocityX))
+    soundEngine.play({ name: 'launch' })
+    const image = this.add.image(originX, originY, 'mine').setScale(0.7).setDepth(DEPTHS.bullets)
+    this.mineShells.push({
+      image,
+      velocityX,
+      velocityY,
+      targetX: x,
+      targetY: y,
+      remainingMs: flightSeconds * 1_000,
+      isDead: false,
+    })
+  }
+
   private deployMine({ x: atX, y: atY }: { x?: number; y?: number } = {}): void {
-    const x = atX ?? 120 + Math.random() * (ARENA.width - 240)
-    const y = atY ?? 230 + Math.random() * (GROUND_Y - 360)
-    const image = this.add
-      .image(x, y - 30, 'mine')
-      .setAlpha(0)
+    const x = atX ?? 120 + Math.random() * (this.arenaWidth - 240)
+    const y = atY ?? 230 + Math.random() * (this.groundY - 360)
+    const balloonImage = this.add
+      .image(x, y - MINE_BALLOON_OFFSET_Y, 'balloon')
+      .setScale(0)
       .setDepth(DEPTHS.units)
-    this.tweens.add({ targets: image, alpha: 1, y, duration: 400, ease: 'Sine.easeOut' })
-    // blinking arming light
+    const image = this.add.image(x, y, 'mine').setScale(0).setDepth(DEPTHS.units)
+    this.tweens.add({
+      targets: [balloonImage, image],
+      scale: 1,
+      duration: 250,
+      ease: 'Back.easeOut',
+    })
+    // blinking arming light (bobbing and rising are simulated in updateMines)
     this.tweens.add({
       targets: image,
       alpha: 0.55,
@@ -2333,7 +3243,14 @@ export class GameScene extends Phaser.Scene {
       yoyo: true,
       repeat: -1,
     })
-    this.mines.push({ image, armRemainingMs: MINES.armDelayMs, isDead: false })
+    this.mines.push({
+      image,
+      balloonImage,
+      baseY: y,
+      bobPhase: Math.random() * Math.PI * 2,
+      armRemainingMs: MINES.armDelayMs,
+      isDead: false,
+    })
   }
 
   // ── orbital laser ──────────────────────────────────────────────────
@@ -2412,7 +3329,7 @@ export class GameScene extends Phaser.Scene {
         column.destroy()
       },
     })
-    this.cameras.main.shake(180, 0.006)
+    this.shakeCamera({ durationMs: 180, intensity: 0.006 })
     this.spawnBlast({
       x: strike.x,
       y: strike.y,
@@ -2473,19 +3390,119 @@ export class GameScene extends Phaser.Scene {
 
   private updateBossSpawners({ delta }: { delta: number }): void {
     for (const enemy of this.enemies) {
-      if (enemy.isDead === true || enemy.definition.kind !== 'mothership') {
+      if (enemy.isDead === true) {
         continue
       }
-      enemy.spawnerAccumulatorMs += delta
-      if (enemy.spawnerAccumulatorMs >= BOSS.addSpawnIntervalMs) {
-        enemy.spawnerAccumulatorMs = 0
-        this.spawnEnemy({
-          definition: ENEMY_DEFINITIONS.drifter,
-          spawnX: enemy.image.x + (Math.random() * 2 - 1) * 30,
-          spawnY: enemy.image.y + enemy.radius,
-        })
-        this.spawnImpactFlash({ x: enemy.image.x, y: enemy.image.y + enemy.radius, radius: 18 })
+
+      if (enemy.definition.kind === 'mothership') {
+        enemy.spawnerAccumulatorMs += delta
+        if (enemy.spawnerAccumulatorMs >= BOSS.addSpawnIntervalMs) {
+          enemy.spawnerAccumulatorMs = 0
+          this.spawnEnemy({
+            definition: ENEMY_DEFINITIONS.drifter,
+            spawnX: enemy.image.x + (Math.random() * 2 - 1) * 30,
+            spawnY: enemy.image.y + enemy.radius,
+          })
+          this.spawnImpactFlash({ x: enemy.image.x, y: enemy.image.y + enemy.radius, radius: 18 })
+        }
+        // the boss never crashes into the city — it bombards from its hover
+        if (enemy.image.y >= BOSS.hoverY) {
+          enemy.attackAccumulatorMs += delta
+          if (enemy.attackAccumulatorMs >= BOSS.boltIntervalMs) {
+            enemy.attackAccumulatorMs = 0
+            this.dropBossBolt({ x: enemy.image.x, y: enemy.image.y + enemy.radius })
+          }
+        }
+        continue
       }
+
+      // menders pulse healing into nearby invaders
+      if (enemy.definition.kind === 'mender') {
+        enemy.attackAccumulatorMs += delta
+        if (enemy.attackAccumulatorMs >= ENEMY_AURAS.menderIntervalMs) {
+          enemy.attackAccumulatorMs = 0
+          this.pulseMenderHeal({ mender: enemy })
+        }
+        continue
+      }
+
+      // regenerating elites knit themselves back together
+      if (enemy.affix === 'regen' && enemy.hp < enemy.maxHp) {
+        enemy.hp = Math.min(
+          enemy.maxHp,
+          enemy.hp + enemy.maxHp * ENEMY_AURAS.eliteRegenFractionPerSec * (delta / 1_000),
+        )
+      }
+    }
+
+    const seconds = delta / 1_000
+    for (const bolt of this.bossBolts) {
+      if (bolt.isDead === true) {
+        continue
+      }
+      bolt.image.y += bolt.velocityY * seconds
+      if (bolt.image.y >= this.groundY - 4) {
+        bolt.isDead = true
+        bolt.image.destroy()
+        if (this.tryAegisBlock({ x: bolt.image.x }) === false) {
+          this.spawnImpactFlash({ x: bolt.image.x, y: this.groundY, radius: 30 })
+          soundEngine.play({ name: 'impact' })
+          this.hp -= BOSS.boltIntegrityDamage
+          this.shakeCamera({ durationMs: 100, intensity: 0.003 })
+          if (this.hp <= 0) {
+            this.hp = 0
+            this.endRun()
+            return
+          }
+        }
+      }
+    }
+    this.bossBolts = this.bossBolts.filter((bolt) => bolt.isDead === false)
+  }
+
+  private dropBossBolt({ x, y }: { x: number; y: number }): void {
+    const image = this.add.image(x, y, 'boss-bolt').setDepth(DEPTHS.bullets)
+    this.tweens.add({
+      targets: image,
+      scaleX: 1.3,
+      scaleY: 1.3,
+      duration: 220,
+      yoyo: true,
+      repeat: -1,
+    })
+    this.bossBolts.push({ image, velocityY: BOSS.boltSpeedPxPerSec, isDead: false })
+  }
+
+  /** mender aura: heal every other invader inside the radius for a slice of max hp */
+  private pulseMenderHeal({ mender }: { mender: EnemyUnit }): void {
+    let didHeal = false
+    for (const other of this.enemies) {
+      if (other.isDead === true || other === mender || other.hp >= other.maxHp) {
+        continue
+      }
+      const distanceSq =
+        (other.image.x - mender.image.x) ** 2 + (other.image.y - mender.image.y) ** 2
+      if (distanceSq > ENEMY_AURAS.menderRadiusPx ** 2) {
+        continue
+      }
+      other.hp = Math.min(other.maxHp, other.hp + other.maxHp * ENEMY_AURAS.menderHealFraction)
+      didHeal = true
+    }
+    if (didHeal === true) {
+      const ring = this.add
+        .circle(mender.image.x, mender.image.y, mender.radius)
+        .setStrokeStyle(2, 0x4ade80, 0.8)
+        .setDepth(DEPTHS.effects)
+      this.tweens.add({
+        targets: ring,
+        radius: ENEMY_AURAS.menderRadiusPx,
+        alpha: 0,
+        duration: 500,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          ring.destroy()
+        },
+      })
     }
   }
 
@@ -2499,7 +3516,11 @@ export class GameScene extends Phaser.Scene {
       elite: 0xf97316,
       splitter: 0xec4899,
       shardling: 0xf472b6,
+      warden: 0x3b82f6,
+      dancer: 0x2dd4bf,
+      mender: 0x4ade80,
       mothership: 0x94a3b8,
+      dummy: 0xe2e8f0,
     }
     const color = colors[enemy.definition.kind] ?? 0xef4444
     const shardCount = Math.min(10, 4 + Math.floor(enemy.radius / 6))
@@ -2557,6 +3578,7 @@ export class GameScene extends Phaser.Scene {
         velocityX: Math.cos(angle) * fragmentSpeed,
         velocityY: Math.sin(angle) * fragmentSpeed,
         damage: fragmentDamage,
+        isCrit: false,
         pierceLeft: 0,
         traveledPx: 0,
         maxTravelPx: CLUSTER_BOMBS.fragmentTravelPx,
@@ -2627,13 +3649,6 @@ export class GameScene extends Phaser.Scene {
             fraction: this.lanceAccumulatorMs / this.weaponIntervalMs({ weaponId: 'lance' }),
           })
         }
-        if (this.stats.mineLevel > 0) {
-          rows.push({
-            key: 'mines',
-            weaponId: 'mines',
-            fraction: this.mineAccumulatorMs / this.weaponIntervalMs({ weaponId: 'mines' }),
-          })
-        }
         if (this.stats.orbitalLaserLevel > 0) {
           rows.push({
             key: 'orbital-laser',
@@ -2702,7 +3717,7 @@ export class GameScene extends Phaser.Scene {
     const targetCount = Math.min(this.upgradeStacks.get('nanite') ?? 0, MAX_NANITE_DRONES)
     while (this.naniteDrones.length < targetCount) {
       const drone = this.add
-        .image(CANNON_X_POSITIONS[0], CANNON_Y - 60, 'nanite-drone')
+        .image(this.cannonXs[0], this.cannonY - 60, 'nanite-drone')
         .setDepth(DEPTHS.units)
         .setScale(0)
       this.tweens.add({ targets: drone, scale: 1, duration: 300, ease: 'Back.easeOut' })
@@ -2720,7 +3735,7 @@ export class GameScene extends Phaser.Scene {
     const pool = damaged.length > 0 && Math.random() < 0.7 ? damaged : this.buildings
     const building = pool[Math.floor(Math.random() * pool.length)]
     const hoverX = building.x + (Math.random() * 2 - 1) * 24
-    const hoverY = GROUND_Y - building.image.height - 26 - Math.random() * 18
+    const hoverY = this.groundY - building.image.height - 26 - Math.random() * 18
 
     const travelPx = Math.hypot(drone.x - hoverX, drone.y - hoverY)
     this.tweens.add({
@@ -2788,7 +3803,7 @@ export class GameScene extends Phaser.Scene {
     this.aegisAccumulatorMs = 0
 
     const blockFlash = this.add
-      .circle(x, GROUND_Y, 10)
+      .circle(x, this.groundY, 10)
       .setStrokeStyle(3, 0x38bdf8, 0.95)
       .setDepth(DEPTHS.effects)
     this.tweens.add({
@@ -2823,7 +3838,13 @@ export class GameScene extends Phaser.Scene {
           continue
         }
         bullet.hitEnemies.add(enemy)
-        this.damageEnemy({ enemy, amount: bullet.damage, source: bullet.source })
+        this.damageEnemy({
+          enemy,
+          amount: bullet.damage,
+          source: bullet.source,
+          canCrit: bullet.source !== 'main',
+          isPreRolledCrit: bullet.isCrit,
+        })
         if (bullet.pierceLeft <= 0) {
           bullet.isDead = true
           break
@@ -2838,16 +3859,17 @@ export class GameScene extends Phaser.Scene {
       if (enemy.isDead === true) {
         continue
       }
-      if (enemy.image.y + enemy.radius < GROUND_Y) {
+      if (enemy.image.y + enemy.radius < this.groundY) {
         continue
       }
       enemy.isDead = true
       if (this.tryAegisBlock({ x: enemy.image.x }) === true) {
         continue
       }
-      this.spawnImpactFlash({ x: enemy.image.x, y: GROUND_Y, radius: 34 })
+      this.spawnImpactFlash({ x: enemy.image.x, y: this.groundY, radius: 34 })
+      soundEngine.play({ name: 'impact' })
       this.hp -= enemy.contactDamage
-      this.cameras.main.shake(120, 0.004)
+      this.shakeCamera({ durationMs: 120, intensity: 0.004 })
       if (this.hp <= 0) {
         this.hp = 0
         this.endRun()
@@ -2860,21 +3882,55 @@ export class GameScene extends Phaser.Scene {
     enemy,
     amount,
     source,
+    canCrit = true,
+    isPreRolledCrit = false,
   }: {
     enemy: EnemyUnit
     amount: number
     source: string
+    /** main-gun bullets roll their crit at fire time — don't roll twice */
+    canCrit?: boolean
+    /** the fire-time crit verdict, so the damage popup still shows it */
+    isPreRolledCrit?: boolean
   }): void {
     if (enemy.isDead === true) {
       return
     }
+    // a warden's shield absorbs the first hit outright, whatever it was
+    if (enemy.hasShield === true) {
+      enemy.hasShield = false
+      enemy.image.setTexture('enemy-warden-broken')
+      soundEngine.play({ name: 'freeze' })
+      const shieldRing = this.add
+        .circle(enemy.image.x, enemy.image.y, enemy.radius + 6)
+        .setStrokeStyle(3, 0x38bdf8, 0.95)
+        .setDepth(DEPTHS.effects)
+      this.tweens.add({
+        targets: shieldRing,
+        radius: enemy.radius + 20,
+        alpha: 0,
+        duration: 300,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          shieldRing.destroy()
+        },
+      })
+      return
+    }
     let finalAmount = amount
+    // crit chance applies to every weapon system, rolled per hit
+    let isCrit = isPreRolledCrit
+    if (canCrit === true && Math.random() < this.stats.critChance) {
+      finalAmount *= this.stats.critMultiplier
+      isCrit = true
+    }
     if (this.stats.shatterLevel > 0 && enemy.frozenRemainingMs > 0) {
       finalAmount *=
         1 + SHATTERPOINT.baseBonus + SHATTERPOINT.bonusPerLevel * (this.stats.shatterLevel - 1)
     }
     this.damageBySource.set(source, (this.damageBySource.get(source) ?? 0) + finalAmount)
     enemy.hp -= finalAmount
+    this.spawnDamageNumber({ x: enemy.image.x, y: enemy.image.y, amount: finalAmount, isCrit })
     enemy.image.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL)
     this.time.delayedCall(40, () => {
       if (enemy.image.active === true) {
@@ -2885,20 +3941,36 @@ export class GameScene extends Phaser.Scene {
     if (enemy.hp <= 0) {
       enemy.isDead = true
       this.kills += 1
+      soundEngine.play({ name: 'kill' })
       this.spawnDeathBurst({ enemy })
 
-      if (enemy.definition.kind === 'splitter') {
-        for (let index = 0; index < 3; index += 1) {
-          this.spawnEnemy({
-            definition: ENEMY_DEFINITIONS.shardling,
-            spawnX: enemy.image.x + (Math.random() * 2 - 1) * 12,
-            spawnY: enemy.image.y,
-            impactX: enemy.image.x + (Math.random() * 2 - 1) * 120,
-          })
-        }
+      // killable training dummies pop back up at their station shortly after
+      if (this.isSandbox === true && enemy.definition.kind === 'dummy') {
+        this.dummyRespawnQueue.push({
+          x: enemy.patrol?.baseX ?? enemy.image.x,
+          y: enemy.image.y,
+          radius: enemy.radius,
+          scale: enemy.image.scaleX,
+          patrolAmplitude: enemy.patrol?.amplitudeX ?? 0,
+          patrolPhase: enemy.patrol?.phase ?? 0,
+          remainingMs: DUMMY_RESPAWN_MS,
+        })
+        return
+      }
+
+      const shardlingCount =
+        (enemy.definition.kind === 'splitter' ? 3 : 0) +
+        (enemy.affix === 'split' ? ELITE_AFFIXES.split.shardlings : 0)
+      for (let index = 0; index < shardlingCount; index += 1) {
+        this.spawnEnemy({
+          definition: ENEMY_DEFINITIONS.shardling,
+          spawnX: enemy.image.x + (Math.random() * 2 - 1) * 12,
+          spawnY: enemy.image.y,
+          impactX: enemy.image.x + (Math.random() * 2 - 1) * 120,
+        })
       }
       if (enemy.definition.kind === 'mothership') {
-        this.cameras.main.shake(500, 0.012)
+        this.shakeCamera({ durationMs: 500, intensity: 0.012 })
         this.spawnBlast({
           x: enemy.image.x,
           y: enemy.image.y,
@@ -2933,8 +4005,8 @@ export class GameScene extends Phaser.Scene {
     const gem = this.add.image(x, y, 'gem').setDepth(DEPTHS.bullets)
     this.tweens.add({
       targets: gem,
-      x: CANNON_X_POSITIONS[0],
-      y: CANNON_Y,
+      x: this.cannonXs[0],
+      y: this.cannonY,
       scale: 0.5,
       delay: 150,
       duration: 420,
@@ -2969,6 +4041,12 @@ export class GameScene extends Phaser.Scene {
 
   private presentLevelUpOffer(): void {
     this.hasActiveOffer = true
+    soundEngine.play({ name: 'levelup' })
+    this.emitLevelUpOffer()
+    this.scene.pause()
+  }
+
+  private emitLevelUpOffer(): void {
     const choices = rollUpgradeChoices({
       stacks: this.upgradeStacks,
       roll: () => Math.random(),
@@ -2977,6 +4055,7 @@ export class GameScene extends Phaser.Scene {
       luck: this.stats.luck,
       weaponSlots: this.stats.weaponSlots,
       weaponTierBonus: this.stats.weaponTierBonus,
+      banished: this.banishedCardIds,
     })
     gameEventBus.emit({
       event: 'level-up',
@@ -2985,28 +4064,57 @@ export class GameScene extends Phaser.Scene {
         choices,
         weaponSlotsUsed: countOwnedWeapons({ stacks: this.upgradeStacks }),
         weaponSlotsTotal: this.stats.weaponSlots,
+        rerollsLeft: this.runRerollsLeft,
+        banishesLeft: this.runBanishesLeft,
       },
     })
-    this.scene.pause()
+  }
+
+  private rerollActiveOffer(): void {
+    if (this.hasActiveOffer === false || this.runRerollsLeft <= 0) {
+      return
+    }
+    this.runRerollsLeft -= 1
+    this.emitLevelUpOffer()
+  }
+
+  /** strike the card from this run's pool entirely, then refresh the offer */
+  private banishCard({ upgradeId }: { upgradeId: string }): void {
+    if (
+      this.hasActiveOffer === false ||
+      this.runBanishesLeft <= 0 ||
+      isFillerUpgradeId({ upgradeId }) === true
+    ) {
+      return
+    }
+    this.runBanishesLeft -= 1
+    this.banishedCardIds.add(upgradeId)
+    this.emitLevelUpOffer()
   }
 
   private applyUpgrade({ upgradeId }: { upgradeId: string }): void {
-    const definition = findUpgradeDefinition({ upgradeId })
-    if (definition === null || this.hasActiveOffer === false) {
+    if (this.hasActiveOffer === false) {
       return
     }
+    if (isFillerUpgradeId({ upgradeId }) === true) {
+      this.applyFillerUpgrade({ upgradeId })
+    } else {
+      const definition = findUpgradeDefinition({ upgradeId })
+      if (definition === null) {
+        return
+      }
+      this.upgradeStacks.set(upgradeId, (this.upgradeStacks.get(upgradeId) ?? 0) + 1)
+      this.stats = definition.apply(this.stats)
 
-    this.upgradeStacks.set(upgradeId, (this.upgradeStacks.get(upgradeId) ?? 0) + 1)
-    this.stats = definition.apply(this.stats)
-
-    if (upgradeId === 'nanite') {
-      this.syncNaniteDrones()
-    }
-    if (upgradeId === 'cloud') {
-      this.syncCloudCover()
-    }
-    for (const cannon of this.cannons) {
-      cannon.rangeRing.radius = this.stats.range
+      if (upgradeId === 'nanite') {
+        this.syncNaniteDrones()
+      }
+      if (upgradeId === 'cloud') {
+        this.syncCloudCover()
+      }
+      for (const cannon of this.cannons) {
+        cannon.rangeRing.radius = this.stats.range
+      }
     }
     this.syncBuildings()
 
@@ -3021,20 +4129,37 @@ export class GameScene extends Phaser.Scene {
     this.scene.resume()
   }
 
+  private applyFillerUpgrade({ upgradeId }: { upgradeId: string }): void {
+    if (upgradeId === 'filler-stardust') {
+      this.bonusStardust += FILLER_REWARDS.stardust
+      return
+    }
+    if (upgradeId === 'filler-repair') {
+      this.hp = Math.min(this.stats.maxHp, this.hp + FILLER_REWARDS.repairIntegrity)
+      return
+    }
+    if (upgradeId === 'filler-overcharge') {
+      this.stats = {
+        ...this.stats,
+        damage: this.stats.damage * (1 + FILLER_REWARDS.damagePercent / 100),
+      }
+    }
+  }
+
   private syncCannons(): void {
-    const targetCount = Math.min(this.stats.cannonCount, CANNON_X_POSITIONS.length)
+    const targetCount = Math.min(this.stats.cannonCount, this.cannonXs.length)
     while (this.cannons.length < targetCount) {
-      const x = CANNON_X_POSITIONS[this.cannons.length]
+      const x = this.cannonXs[this.cannons.length]
       const rangeRing = this.add
-        .circle(x, CANNON_Y, this.stats.range)
+        .circle(x, this.cannonY, this.stats.range)
         .setStrokeStyle(2, 0x38bdf8, 0.1)
         .setDepth(DEPTHS.rangeRing)
       const barrelImage = this.add
-        .image(x, CANNON_Y - 6, 'battery-barrel')
+        .image(x, this.cannonY - 6, 'battery-barrel')
         .setOrigin(0.12, 0.5)
         .setRotation(-Math.PI / 2)
         .setDepth(DEPTHS.barrel)
-      const baseImage = this.add.image(x, CANNON_Y, 'battery-base').setDepth(DEPTHS.cannonBase)
+      const baseImage = this.add.image(x, this.cannonY, 'battery-base').setDepth(DEPTHS.cannonBase)
 
       const isReinforcement = this.cannons.length > 0
       if (isReinforcement === true) {
@@ -3050,7 +4175,7 @@ export class GameScene extends Phaser.Scene {
 
       this.cannons.push({
         x,
-        y: CANNON_Y,
+        y: this.cannonY,
         baseImage,
         barrelImage,
         rangeRing,
@@ -3063,13 +4188,13 @@ export class GameScene extends Phaser.Scene {
   // ── buildings ──────────────────────────────────────────────────────
 
   private spawnBuildings(): void {
-    this.buildings = BUILDING_X_POSITIONS.map((x, index) => {
+    this.buildings = this.buildingXs.map((x, index) => {
       const textureKey = `building-${index}`
       return {
         x,
         textureKey,
         image: this.add
-          .image(x, GROUND_Y + 4, textureKey)
+          .image(x, this.groundY + 4, textureKey)
           .setOrigin(0.5, 1)
           .setDepth(DEPTHS.buildings),
         isDestroyed: false,
@@ -3092,8 +4217,9 @@ export class GameScene extends Phaser.Scene {
       building.isDestroyed = shouldBeDestroyed
       if (shouldBeDestroyed === true) {
         building.image.setTexture('building-rubble')
-        this.spawnImpactFlash({ x: building.x, y: GROUND_Y - 12, radius: 48 })
-        this.cameras.main.shake(200, 0.006)
+        this.spawnImpactFlash({ x: building.x, y: this.groundY - 12, radius: 48 })
+        soundEngine.play({ name: 'collapse' })
+        this.shakeCamera({ durationMs: 200, intensity: 0.006 })
       } else {
         // nanite regen brought it back
         building.image.setTexture(building.textureKey)
@@ -3116,11 +4242,13 @@ export class GameScene extends Phaser.Scene {
 
   private endRun(): void {
     this.isRunOver = true
+    soundEngine.play({ name: 'gameover' })
     this.syncBuildings()
     const stardustEarned = Math.round(
       (this.kills * STARDUST.perKill +
         this.wave * STARDUST.perWave +
-        this.level * STARDUST.perLevel) *
+        this.level * STARDUST.perLevel +
+        this.bonusStardust) *
         this.stardustMultiplier,
     )
 
@@ -3136,8 +4264,12 @@ export class GameScene extends Phaser.Scene {
       duration: 700,
       ease: 'Cubic.easeOut',
     })
-    this.cameras.main.shake(400, 0.01)
+    this.shakeCamera({ durationMs: 400, intensity: 0.01 })
     this.emitHudSnapshot()
+
+    const damageBySource = [...this.damageBySource.entries()]
+      .map(([source, total]) => ({ source, total }))
+      .sort((a, b) => b.total - a.total)
 
     this.time.delayedCall(750, () => {
       gameEventBus.emit({
@@ -3148,6 +4280,7 @@ export class GameScene extends Phaser.Scene {
           level: this.level,
           elapsedMs: this.elapsedMs,
           stardustEarned,
+          damageBySource,
         },
       })
       this.scene.pause()
@@ -3213,6 +4346,44 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** optional floating damage numbers — capped so dense fights don't drown in text */
+  private spawnDamageNumber({
+    x,
+    y,
+    amount,
+    isCrit,
+  }: {
+    x: number
+    y: number
+    amount: number
+    isCrit: boolean
+  }): void {
+    if (damageNumbersEnabled.value === false || this.floatingTextCount >= 40) {
+      return
+    }
+    this.floatingTextCount += 1
+    const text = this.add
+      .text(x + (Math.random() * 2 - 1) * 8, y - 10, String(Math.round(amount)), {
+        fontFamily: 'Segoe UI, system-ui, sans-serif',
+        fontSize: isCrit === true ? '15px' : '11px',
+        fontStyle: 'bold',
+        color: isCrit === true ? '#fde047' : '#e2e8f0',
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: text,
+      y: y - 38,
+      alpha: 0,
+      duration: 600,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        text.destroy()
+        this.floatingTextCount -= 1
+      },
+    })
+  }
+
   private spawnImpactFlash({ x, y, radius }: { x: number; y: number; radius: number }): void {
     const flash = this.add.circle(x, y, 6, 0xf87171, 0.9).setDepth(DEPTHS.effects)
     this.tweens.add({
@@ -3234,21 +4405,21 @@ export class GameScene extends Phaser.Scene {
 
     // night gradient: deep space at the top fading to a violet glow at the horizon
     graphics.fillGradientStyle(0x020409, 0x020409, 0x1e1b4b, 0x1e1b4b, 1)
-    graphics.fillRect(0, 0, ARENA.width, GROUND_Y)
+    graphics.fillRect(0, 0, this.arenaWidth, this.groundY)
     graphics.fillGradientStyle(0x1e1b4b, 0x1e1b4b, 0x4c1d95, 0x4c1d95, 0.5)
-    graphics.fillRect(0, GROUND_Y - 90, ARENA.width, 90)
+    graphics.fillRect(0, this.groundY - 90, this.arenaWidth, 90)
 
     // stars, denser near the top
     for (let index = 0; index < 130; index += 1) {
-      const x = Math.random() * ARENA.width
-      const y = Math.random() ** 1.6 * (GROUND_Y - 40)
+      const x = Math.random() * this.arenaWidth
+      const y = Math.random() ** 1.6 * (this.groundY - 40)
       const size = Math.random() < 0.85 ? 1 : 2
       graphics.fillStyle(0xffffff, 0.2 + Math.random() * 0.6)
       graphics.fillRect(x, y, size, size)
     }
 
     // moon with a soft halo and craters
-    const moonX = 1080
+    const moonX = Math.round(this.arenaWidth * 0.84)
     const moonY = 110
     graphics.fillStyle(0xfef9c3, 0.08)
     graphics.fillCircle(moonX, moonY, 52)
@@ -3262,14 +4433,14 @@ export class GameScene extends Phaser.Scene {
 
   private spawnClouds(): void {
     const cloudConfigs = [
-      { textureKey: 'cloud-0', x: 200, y: 130, speed: 7, alpha: 0.14, scale: 1.2 },
-      { textureKey: 'cloud-1', x: 620, y: 220, speed: 11, alpha: 0.1, scale: 0.9 },
-      { textureKey: 'cloud-2', x: 980, y: 320, speed: 15, alpha: 0.12, scale: 1 },
-      { textureKey: 'cloud-1', x: 380, y: 420, speed: 19, alpha: 0.08, scale: 1.4 },
+      { textureKey: 'cloud-0', xFraction: 0.16, y: 130, speed: 7, alpha: 0.14, scale: 1.2 },
+      { textureKey: 'cloud-1', xFraction: 0.48, y: 220, speed: 11, alpha: 0.1, scale: 0.9 },
+      { textureKey: 'cloud-2', xFraction: 0.77, y: 320, speed: 15, alpha: 0.12, scale: 1 },
+      { textureKey: 'cloud-1', xFraction: 0.3, y: 420, speed: 19, alpha: 0.08, scale: 1.4 },
     ]
     this.cloudImages = cloudConfigs.map((config) => ({
       image: this.add
-        .image(config.x, config.y, config.textureKey)
+        .image(config.xFraction * this.arenaWidth, config.y, config.textureKey)
         .setAlpha(config.alpha)
         .setScale(config.scale)
         .setDepth(DEPTHS.clouds),
@@ -3292,7 +4463,11 @@ export class GameScene extends Phaser.Scene {
     while (this.cloudImages.length < desiredCount) {
       const textureKey = `cloud-${Math.floor(Math.random() * 3)}`
       const image = this.add
-        .image(Math.random() * ARENA.width, 90 + Math.random() * 360, textureKey)
+        .image(
+          Math.random() * this.arenaWidth,
+          90 + Math.random() * this.groundY * 0.55,
+          textureKey,
+        )
         .setAlpha(0)
         .setScale(0.9 + Math.random() * 0.6)
         .setDepth(DEPTHS.clouds)
@@ -3305,7 +4480,7 @@ export class GameScene extends Phaser.Scene {
     const seconds = delta / 1_000
     for (const cloud of this.cloudImages) {
       cloud.image.x += cloud.speed * seconds
-      if (cloud.image.x > ARENA.width + 160) {
+      if (cloud.image.x > this.arenaWidth + 160) {
         cloud.image.x = -160
       }
     }
@@ -3315,15 +4490,15 @@ export class GameScene extends Phaser.Scene {
     const graphics = this.add.graphics().setDepth(DEPTHS.ground)
 
     graphics.fillGradientStyle(0x166534, 0x166534, 0x052e16, 0x052e16, 1)
-    graphics.fillRect(0, GROUND_Y, ARENA.width, GROUND.height)
+    graphics.fillRect(0, this.groundY, this.arenaWidth, GROUND.height)
     graphics.lineStyle(2, 0x4ade80, 0.45)
-    graphics.lineBetween(0, GROUND_Y, ARENA.width, GROUND_Y)
+    graphics.lineBetween(0, this.groundY, this.arenaWidth, this.groundY)
 
     // faint horizontal contours suggest depth receding toward the horizon
     graphics.lineStyle(1, 0x14532d, 0.8)
-    graphics.lineBetween(0, GROUND_Y + 14, ARENA.width, GROUND_Y + 14)
+    graphics.lineBetween(0, this.groundY + 14, this.arenaWidth, this.groundY + 14)
     graphics.lineStyle(1, 0x14532d, 0.5)
-    graphics.lineBetween(0, GROUND_Y + 32, ARENA.width, GROUND_Y + 32)
+    graphics.lineBetween(0, this.groundY + 32, this.arenaWidth, this.groundY + 32)
   }
 
   // ── generated textures ─────────────────────────────────────────────
@@ -3543,6 +4718,60 @@ export class GameScene extends Phaser.Scene {
     graphics.generateTexture('enemy-shardling', 16, 14)
     graphics.clear()
 
+    // warden: blue armored invader wrapped in a shield ring
+    graphics.fillStyle(0x3b82f6)
+    graphics.fillCircle(17, 17, 11)
+    graphics.lineStyle(2, 0x1e3a8a)
+    graphics.strokeCircle(17, 17, 11)
+    graphics.fillStyle(0x1e3a8a)
+    graphics.fillRect(12, 14, 10, 6)
+    graphics.lineStyle(2, 0x7dd3fc, 0.9)
+    graphics.strokeCircle(17, 17, 15)
+    graphics.generateTexture('enemy-warden', 34, 34)
+    graphics.clear()
+
+    // warden with its shield broken: same hull, no ring
+    graphics.fillStyle(0x3b82f6)
+    graphics.fillCircle(17, 17, 11)
+    graphics.lineStyle(2, 0x1e3a8a)
+    graphics.strokeCircle(17, 17, 11)
+    graphics.fillStyle(0x1e3a8a)
+    graphics.fillRect(12, 14, 10, 6)
+    graphics.generateTexture('enemy-warden-broken', 34, 34)
+    graphics.clear()
+
+    // dancer: teal moth — two swept wings around a slim body
+    graphics.fillStyle(0x2dd4bf)
+    graphics.fillTriangle(11, 11, 1, 3, 5, 14)
+    graphics.fillTriangle(11, 11, 21, 3, 17, 14)
+    graphics.fillStyle(0x0f766e)
+    graphics.fillEllipse(11, 12, 6, 12)
+    graphics.fillStyle(0x99f6e4)
+    graphics.fillCircle(11, 8, 2)
+    graphics.generateTexture('enemy-dancer', 22, 20)
+    graphics.clear()
+
+    // mender: green orb with a medic cross
+    graphics.fillStyle(0x166534)
+    graphics.fillCircle(14, 14, 12)
+    graphics.fillStyle(0x4ade80)
+    graphics.fillCircle(14, 14, 10)
+    graphics.fillStyle(0xdcfce7)
+    graphics.fillRect(12, 8, 4, 12)
+    graphics.fillRect(8, 12, 12, 4)
+    graphics.generateTexture('enemy-mender', 28, 28)
+    graphics.clear()
+
+    // boss plasma bolt: magenta orb with a hot core
+    graphics.fillStyle(0xd946ef, 0.4)
+    graphics.fillCircle(8, 8, 7)
+    graphics.fillStyle(0xd946ef)
+    graphics.fillCircle(8, 8, 5)
+    graphics.fillStyle(0xfdf4ff)
+    graphics.fillCircle(8, 8, 2)
+    graphics.generateTexture('boss-bolt', 16, 16)
+    graphics.clear()
+
     // mothership: broad saucer with dome and running lights
     graphics.fillStyle(0x334155)
     graphics.fillEllipse(44, 30, 84, 26)
@@ -3632,6 +4861,40 @@ export class GameScene extends Phaser.Scene {
     graphics.fillStyle(0xfde047)
     graphics.fillCircle(9, 9, 2.5)
     graphics.generateTexture('mine', 18, 18)
+    graphics.clear()
+
+    // mine balloon: a red marker balloon on a string
+    graphics.fillStyle(0xf87171)
+    graphics.fillEllipse(7, 8, 12, 15)
+    graphics.fillStyle(0xfecaca, 0.9)
+    graphics.fillEllipse(5, 5, 4, 6)
+    graphics.fillStyle(0xb91c1c)
+    graphics.fillTriangle(7, 15, 4, 19, 10, 19)
+    graphics.lineStyle(1, 0xcbd5e1, 0.8)
+    graphics.lineBetween(7, 19, 7, 34)
+    graphics.generateTexture('balloon', 14, 36)
+    graphics.clear()
+
+    // stasis missile: a slim cyan dart with a frosty tip — pointing +x
+    graphics.fillStyle(0xe0f2fe)
+    graphics.fillRect(0, 2, 4, 4)
+    graphics.fillStyle(0x7dd3fc)
+    graphics.fillRect(3, 1, 11, 6)
+    graphics.fillStyle(0xbae6fd)
+    graphics.fillTriangle(19, 4, 13, 0, 13, 8)
+    graphics.generateTexture('stasis-missile', 20, 8)
+    graphics.clear()
+
+    // nanite payload: a writhing green cluster
+    graphics.fillStyle(0x166534)
+    graphics.fillCircle(7, 7, 6)
+    graphics.fillStyle(0x4ade80)
+    graphics.fillCircle(5, 6, 3)
+    graphics.fillCircle(9, 8, 3)
+    graphics.fillCircle(7, 4, 2.5)
+    graphics.fillStyle(0xdcfce7)
+    graphics.fillCircle(7, 7, 1.5)
+    graphics.generateTexture('nanite-shot', 14, 14)
     graphics.clear()
 
     // flak shell: stubby orange proximity charge

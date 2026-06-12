@@ -11,6 +11,10 @@ interface GameEventMap {
   'hud-update': HudSnapshot
   'level-up': LevelUpOffer
   'upgrade-chosen': { upgradeId: string }
+  /** player spends one of the run's rerolls for three new cards */
+  'reroll-requested': Record<string, never>
+  /** player strikes a card from the run's pool and the offer re-rolls */
+  'banish-requested': { upgradeId: string }
   'run-ended': RunResult
   'set-paused': { isPaused: boolean }
   'set-speed': { multiplier: number }

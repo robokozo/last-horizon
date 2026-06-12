@@ -14,13 +14,13 @@ const metaStore = useMetaStore()
 
 const VIEW_BASE_WIDTH = 1500
 const VIEW_BASE_HEIGHT = 1000
-const ZOOM_MIN = 0.5
+const ZOOM_MIN = 0.4
 const ZOOM_MAX = 2.2
 const ZOOM_STEP = 1.12
 
 const cameraX = ref(0)
 const cameraY = ref(0)
-const zoom = ref(0.85)
+const zoom = ref(0.6)
 const selectedNodeId = ref<string | null>(null)
 const isConfirmingReset = ref(false)
 

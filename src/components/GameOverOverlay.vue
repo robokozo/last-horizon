@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { SOURCE_LABELS } from '@/game/data/sourceLabels'
 import type { RunResult } from '@/game/types'
 
 const { result } = defineProps<{ result: RunResult }>()
@@ -15,6 +16,26 @@ const durationLabel = computed(() => {
   const seconds = totalSeconds % 60
   return `${minutes}m ${seconds}s`
 })
+
+const damageRows = computed(() => {
+  const totalDamage = result.damageBySource.reduce((sum, entry) => sum + entry.total, 0)
+  return result.damageBySource.slice(0, 8).map((entry) => ({
+    source: entry.source,
+    label: SOURCE_LABELS[entry.source] ?? entry.source,
+    total: entry.total,
+    percent: totalDamage > 0 ? (entry.total / totalDamage) * 100 : 0,
+  }))
+})
+
+function formatDamage(total: number): string {
+  if (total >= 1_000_000) {
+    return `${(total / 1_000_000).toFixed(1)}M`
+  }
+  if (total >= 10_000) {
+    return `${(total / 1_000).toFixed(0)}k`
+  }
+  return String(Math.round(total))
+}
 </script>
 
 <template>
@@ -36,6 +57,26 @@ const durationLabel = computed(() => {
         <dt class="text-slate-400">Time held</dt>
         <dd class="text-right font-bold text-slate-100">{{ durationLabel }}</dd>
       </dl>
+
+      <div v-if="damageRows.length > 0" class="w-full">
+        <p class="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">
+          Damage by weapon
+        </p>
+        <div class="flex flex-col gap-1">
+          <div v-for="row in damageRows" :key="row.source" class="flex items-center gap-2 text-xs">
+            <span class="w-24 shrink-0 truncate text-slate-400">{{ row.label }}</span>
+            <span class="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+              <span
+                class="block h-full rounded-full bg-sky-500/80"
+                :style="{ width: `${Math.max(2, row.percent)}%` }"
+              />
+            </span>
+            <span class="w-12 shrink-0 text-right font-bold text-slate-200">
+              {{ formatDamage(row.total) }}
+            </span>
+          </div>
+        </div>
+      </div>
 
       <p
         class="flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-5 py-2 text-lg font-bold text-amber-300"

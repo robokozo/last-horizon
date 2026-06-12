@@ -3,6 +3,9 @@ import type { RunStats, UpgradeRarity } from '@/game/types'
 export const ARENA = {
   width: 1280,
   height: 720,
+  /** used instead when the host container is taller than wide (mobile portrait) */
+  portraitWidth: 720,
+  portraitHeight: 1280,
 } as const
 
 export const BATTERY = {
@@ -42,6 +45,11 @@ export const NOVA = {
   expandDurationMs: 450,
 } as const
 
+export const SALVO = {
+  /** volley shots beyond the first deal this fraction of full damage */
+  extraShotDamageFactor: 0.6,
+} as const
+
 export const BULLET = {
   radius: 4,
 } as const
@@ -62,10 +70,15 @@ export const BASE_RUN_STATS: RunStats = {
   luck: 1,
   weaponSlots: 3,
   weaponTierBonus: 0,
+  weaponCooldownFactor: 1,
+  rerollsPerRun: 1,
+  banishesPerRun: 0,
   novaIntervalMs: null,
   novaDamage: 40,
   aegisIntervalMs: null,
   flakLevel: 0,
+  flameLevel: 0,
+  devourerLevel: 0,
   rocketLevel: 0,
   chainLevel: 0,
   cloudLevel: 0,
@@ -89,6 +102,7 @@ export const BASE_RUN_STATS: RunStats = {
   mirvLevel: 0,
   barrageLevel: 0,
   twinRailLevel: 0,
+  mitosisLevel: 0,
 }
 
 export const SYNERGIES = {
@@ -146,23 +160,55 @@ export const SYNERGIES = {
   twinRail: {
     extraBeamsPerLevel: 1,
   },
+  /** devourer swarm × nanite swarm: a dying host splits the payload in two,
+   * each child carrying the FULL remaining budget */
+  mitosis: {
+    splitCount: 2,
+    /** leap radius multiplier: 1 + perLevel × (level − 1) beyond the base */
+    leapRadiusBonusPerLevel: 0.25,
+  },
 } as const
 
-/** proximity mines seeded into the sky */
+/**
+ * Devourer Swarm: a payload of nanites with a fixed damage budget. It eats
+ * its host alive; whatever budget remains when the host dies leaps whole to
+ * the next host in range, until the budget is spent or nothing is in reach.
+ */
+export const DEVOURER = {
+  baseIntervalMs: 6_500,
+  intervalStepMs: 600,
+  minIntervalMs: 4_000,
+  /** total payload budget = bullet damage × (baseBudgetMult + budgetMultPerLevel × (level − 1)) */
+  baseBudgetMult: 6,
+  budgetMultPerLevel: 3,
+  /** drain speed = bullet damage × (baseDrainMult + drainMultPerLevel × (level − 1)) per second */
+  baseDrainMult: 2,
+  drainMultPerLevel: 0.75,
+  /** how far the swarm can leap to a new host */
+  leapRadiusPx: 150,
+  leapRadiusPerLevel: 25,
+  projectileSpeed: 380,
+  /** runaway-mitosis guard: above this many live swarms, splits become single leaps */
+  maxActiveSwarms: 36,
+} as const
+
+/** proximity mines: every cannon lobs its own volley, held aloft on balloons */
 export const MINES = {
   baseIntervalMs: 8_000,
   intervalStepMs: 700,
   minIntervalMs: 5_000,
-  minesPerDrop: 3,
-  minesPerDropPerLevel: 1,
-  maxActive: 10,
+  /** mines per volley = floor(minesPerDrop + minesPerDropPerLevel × (level − 1)) */
+  minesPerDrop: 1,
+  minesPerDropPerLevel: 0.5,
+  /** active-mine ceiling scales with deployed cannons */
+  maxActivePerCannon: 6,
   armDelayMs: 500,
   proximityPx: 30,
-  blastRadius: 70,
-  blastRadiusPerLevel: 6,
+  blastRadius: 85,
+  blastRadiusPerLevel: 8,
   /** mine damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
   baseDamageMult: 2.5,
-  damageMultPerLevel: 0.8,
+  damageMultPerLevel: 1.2,
 } as const
 
 /** paints a reticle on the densest cluster, then fires a column from orbit */
@@ -172,10 +218,10 @@ export const ORBITAL_LASER = {
   minIntervalMs: 9_000,
   lockOnMs: 800,
   strikeRadius: 90,
-  strikeRadiusPerLevel: 8,
+  strikeRadiusPerLevel: 12,
   /** strike damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
-  baseDamageMult: 14,
-  damageMultPerLevel: 5,
+  baseDamageMult: 16,
+  damageMultPerLevel: 8,
 } as const
 
 export const STORM_FRONT = {
@@ -213,12 +259,8 @@ export const LANCE = {
   /** degrees of sky covered per sweep, centered on the densest cluster */
   sweepArcDegBase: 70,
   sweepArcDegPerLevel: 15,
-  sweepSpeedDegPerSec: 80,
-  /** compatibility aliases used by the scene's linear sweep implementation */
-  sweepSpanBase: 70,
-  sweepSpanPerLevel: 15,
-  sweepSpeedPxPerSec: 80,
-  beamHalfWidthPx: 9,
+  sweepSpeedDegPerSec: 65,
+  beamHalfWidthPx: 7,
 } as const
 
 export const BOSS = {
@@ -228,14 +270,52 @@ export const BOSS = {
   addSpawnIntervalMs: 4_000,
   xpGems: 6,
   xpPerGem: 35,
+  /** the mothership descends to this altitude, then holds and bombards */
+  hoverY: 170,
+  driftSpeedPxPerSec: 30,
+  /** plasma bolts dropped at the city while hovering */
+  boltIntervalMs: 2_600,
+  boltSpeedPxPerSec: 180,
+  boltIntegrityDamage: 7,
 } as const
 
+/** flamethrower: short-range cone bursts from every cannon */
+export const FLAME = {
+  baseIntervalMs: 2_200,
+  intervalStepMs: 180,
+  minIntervalMs: 1_300,
+  rangePx: 250,
+  rangePerLevel: 18,
+  coneHalfAngleRad: 0.42,
+  /** per-burst damage to everything in the cone = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
+  baseDamageMult: 1.1,
+  damageMultPerLevel: 0.45,
+} as const
+
+/** passive enemy behaviors that tick on a shared accumulator */
+export const ENEMY_AURAS = {
+  /** menders heal nearby invaders for a fraction of their max hp */
+  menderIntervalMs: 1_500,
+  menderRadiusPx: 140,
+  menderHealFraction: 0.08,
+  /** regenerating elites recover this fraction of max hp per second */
+  eliteRegenFractionPerSec: 0.02,
+} as const
+
+export const ELITE_AFFIXES = {
+  swift: { speedMult: 1.7, hpMult: 0.7, tint: 0xfde047 },
+  regen: { tint: 0x86efac },
+  split: { shardlings: 4, tint: 0xf9a8d4 },
+} as const
+
+/** a stasis missile: on contact a pulse emanates and freezes everything it touches */
 export const LOCKDOWN = {
   baseIntervalMs: 8_000,
   intervalStepMs: 700,
   minIntervalMs: 5_000,
-  baseTargets: 3,
-  targetsPerLevel: 2,
+  missileSpeedPxPerSec: 340,
+  pulseRadius: 95,
+  pulseRadiusPerLevel: 24,
   baseFreezeMs: 2_500,
   freezeMsPerLevel: 400,
 } as const
@@ -245,8 +325,8 @@ export const RAILGUN = {
   intervalStepMs: 600,
   minIntervalMs: 3_800,
   /** beam damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
-  baseDamageMult: 4,
-  damageMultPerLevel: 1.2,
+  baseDamageMult: 5,
+  damageMultPerLevel: 2,
   beamHalfWidthPx: 7,
 } as const
 
@@ -261,7 +341,7 @@ export const AIRSTRIKE = {
   bombFallSpeedPxPerSec: 130,
   /** bomb damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
   baseDamageMult: 1.5,
-  damageMultPerLevel: 0.5,
+  damageMultPerLevel: 0.4,
   baseBlastRadius: 58,
   blastRadiusPerLevel: 6,
 } as const
@@ -285,6 +365,13 @@ export const CLOUD = {
   cloudsPerStack: 2,
   maxClouds: 12,
   activeAlpha: 0.26,
+} as const
+
+/** generic consolation cards offered when the real card pool runs dry */
+export const FILLER_REWARDS = {
+  stardust: 30,
+  repairIntegrity: 25,
+  damagePercent: 5,
 } as const
 
 export const NOVA_START_INTERVAL_MS = 5_000
@@ -337,11 +424,11 @@ export const ROCKET = {
 
 export const CHAIN = {
   baseIntervalMs: 4_500,
-  intervalStepMs: 350,
+  intervalStepMs: 250,
   minIntervalMs: 2_400,
   /** chain damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
   baseDamageMult: 1.5,
-  damageMultPerLevel: 0.6,
+  damageMultPerLevel: 0.35,
   baseChains: 3,
   chainsPerLevel: 1,
   jumpRadius: 190,

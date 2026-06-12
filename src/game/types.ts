@@ -19,6 +19,12 @@ export interface RunStats {
   weaponSlots: number
   /** extra max tiers granted to every weapon card by the paragon tree */
   weaponTierBonus: number
+  /** multiplier on every auxiliary weapon cooldown — fire-rate bonuses are global haste */
+  weaponCooldownFactor: number
+  /** card rerolls available per run (base 1, raised by paragon reroll nodes) */
+  rerollsPerRun: number
+  /** card banishes available per run — base 0, only paragon nodes grant them */
+  banishesPerRun: number
   /** null means novas are not unlocked for this run */
   novaIntervalMs: number | null
   novaDamage: number
@@ -26,6 +32,8 @@ export interface RunStats {
   aegisIntervalMs: number | null
   /** 0 means the weapon is not unlocked for this run */
   flakLevel: number
+  flameLevel: number
+  devourerLevel: number
   rocketLevel: number
   chainLevel: number
   cloudLevel: number
@@ -50,6 +58,7 @@ export interface RunStats {
   mirvLevel: number
   barrageLevel: number
   twinRailLevel: number
+  mitosisLevel: number
 }
 
 export type UpgradeRarity = 'common' | 'rare' | 'epic' | 'legendary'
@@ -77,6 +86,8 @@ export interface UpgradeChoice {
   category: UpgradeCategory
   currentStacks: number
   maxStacks: number
+  /** for synergy tactics: the parent cards, e.g. "Tesla Arc ★2 + Cloud Cover ★2" */
+  synergyOf: string | null
 }
 
 export interface LevelUpOffer {
@@ -84,6 +95,10 @@ export interface LevelUpOffer {
   choices: Array<UpgradeChoice>
   weaponSlotsUsed: number
   weaponSlotsTotal: number
+  /** rerolls remaining for the whole run */
+  rerollsLeft: number
+  /** banishes remaining for the whole run */
+  banishesLeft: number
 }
 
 export interface RunResult {
@@ -92,6 +107,8 @@ export interface RunResult {
   level: number
   elapsedMs: number
   stardustEarned: number
+  /** per-weapon damage totals for the run summary, sorted descending */
+  damageBySource: Array<{ source: string; total: number }>
 }
 
 export interface SandboxStatsEntry {
@@ -107,6 +124,10 @@ export interface SandboxLayout {
   spread: number
   /** dummies patrol side to side on a sine, with honest velocity for intercepts */
   isMoving: boolean
+  /** false silences the main cannons, isolating whatever ability is being tested */
+  isMainGunEnabled: boolean
+  /** dummy hit points; null = invincible. Finite dummies die and respawn, for testing kill-triggered effects */
+  dummyHp: number | null
 }
 
 export interface GameSceneData {

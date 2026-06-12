@@ -32,12 +32,12 @@ lost. A speed button cycles the sim ×1 → ×2 → ×5 (sub-stepped so fast bul
 cannot tunnel through enemies), and weapon cooldown bars sit bottom-left.
 
 **Cross-run:** runs award stardust (waves + kills + levels, scaled by tree
-bonuses). Spend it on the paragon tree — 43 nodes in 6 rotationally symmetric
+bonuses). Spend it on the paragon tree — 115 nodes in 6 rotationally symmetric
 branches (Offense / Arsenal / Tech / Defense / Sensors / Fortune), generated
 from one slot-geometry template rotated through 60°. Adjacent branches are
 ring-linked at the fork tier, so you can path around the board without going
 back through the core. Each branch ends in a keystone that changes how runs
-start (Executioner, Twin Cannons, Nova Core, Aegis Protocol, Farsight
+start (Executioner, Autoloaders, Overdrive Core, Aegis Protocol, Farsight
 Protocol, Star Harvest). Free full-refund respec; saves from older tree
 layouts migrate with a full refund.
 

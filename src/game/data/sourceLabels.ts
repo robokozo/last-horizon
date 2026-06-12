@@ -1,0 +1,19 @@
+/** display names for damage-attribution sources (weapons and synergies) */
+export const SOURCE_LABELS: Record<string, string> = {
+  main: 'Main Guns',
+  flak: 'Flak Gun',
+  rocket: 'Rocket Pod',
+  chain: 'Tesla Arc',
+  nova: 'Nova Pulse',
+  railgun: 'Rail Gun',
+  lance: 'Thermal Lance',
+  flame: 'Flamethrower',
+  devourer: 'Devourer Swarm',
+  mines: 'Mine Layer',
+  'orbital-laser': 'Orbital Laser',
+  airstrike: 'Strafing Run',
+  bfg: 'BFG',
+  storm: 'Storm Front',
+  ion: 'Ion Rail',
+  cluster: 'Cluster Bombs',
+}

@@ -92,6 +92,59 @@ export const useMetaStore = defineStore('meta', () => {
     unlockedNodeIds.value = [ROOT_NODE_ID]
   }
 
+  /** wipe the save entirely: stardust, tree, lifetime stats */
+  function resetAllProgress(): void {
+    stardust.value = 0
+    unlockedNodeIds.value = [ROOT_NODE_ID]
+    lifetime.value = { ...DEFAULT_LIFETIME_STATS }
+  }
+
+  /** the whole save as a copyable code (base64 JSON) for moving between devices */
+  function exportSave(): string {
+    const payload = {
+      version: 1,
+      stardust: stardust.value,
+      unlockedNodeIds: unlockedNodeIds.value,
+      lifetime: lifetime.value,
+    }
+    return btoa(JSON.stringify(payload))
+  }
+
+  function importSave({ code }: { code: string }): boolean {
+    try {
+      const payload = JSON.parse(atob(code.trim())) as {
+        version?: number
+        stardust?: number
+        unlockedNodeIds?: Array<string>
+        lifetime?: LifetimeStats
+      }
+      if (
+        typeof payload.stardust !== 'number' ||
+        Array.isArray(payload.unlockedNodeIds) === false ||
+        payload.lifetime === undefined
+      ) {
+        return false
+      }
+      stardust.value = payload.stardust
+      // unknown node ids (older tree layouts) fall back to the refund migration on reload
+      unlockedNodeIds.value = payload.unlockedNodeIds.filter(
+        (nodeId): nodeId is string => typeof nodeId === 'string',
+      )
+      if (unlockedNodeIds.value.includes(ROOT_NODE_ID) === false) {
+        unlockedNodeIds.value = [ROOT_NODE_ID, ...unlockedNodeIds.value]
+      }
+      lifetime.value = {
+        runs: Number(payload.lifetime.runs ?? 0),
+        kills: Number(payload.lifetime.kills ?? 0),
+        bestWave: Number(payload.lifetime.bestWave ?? 0),
+        totalStardustEarned: Number(payload.lifetime.totalStardustEarned ?? 0),
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+
   function recordRun({ result }: { result: RunResult }): void {
     stardust.value += result.stardustEarned
     lifetime.value = {
@@ -121,6 +174,9 @@ export const useMetaStore = defineStore('meta', () => {
     canUnlockNode,
     unlockNode,
     resetTree,
+    resetAllProgress,
+    exportSave,
+    importSave,
     recordRun,
   }
 })

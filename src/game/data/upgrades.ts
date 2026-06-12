@@ -1,4 +1,4 @@
-import { NOVA_START_INTERVAL_MS, RARITY_WEIGHTS } from '@/game/data/balance'
+import { FILLER_REWARDS, NOVA_START_INTERVAL_MS, RARITY_WEIGHTS } from '@/game/data/balance'
 import type { RunStats, UpgradeCategory, UpgradeChoice, UpgradeRarity } from '@/game/types'
 
 export interface UpgradeDefinition {
@@ -26,7 +26,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'salvo',
     name: 'Salvo Targeting',
     description:
-      'A fire-control computer: each volley intercepts +1 separate invader, every shot with its own firing solution',
+      'A fire-control computer: each volley intercepts +1 separate invader — the extra shots hit at 60% damage',
     rarity: 'epic',
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
@@ -46,7 +46,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'lockdown',
     name: 'Lock Down',
     description:
-      'Periodically freezes the most threatening invaders mid-air (stacks: more targets, longer freeze)',
+      'Fires a stasis missile at the most threatening invader — on impact a pulse freezes everything it washes over (stacks: wider pulse, longer freeze)',
     rarity: 'epic',
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
@@ -93,6 +93,16 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, flakLevel: stats.flakLevel + 1 }),
   },
   {
+    id: 'flame',
+    name: 'Flamethrower',
+    description:
+      'Mounts a flamethrower: short-range cone bursts that roast everything in front of the cannon (stacks: faster, hotter, longer reach)',
+    rarity: 'common',
+    category: 'weapon',
+    maxStacks: BASE_MAX_STACKS,
+    apply: (stats) => ({ ...stats, flameLevel: stats.flameLevel + 1 }),
+  },
+  {
     id: 'rocket',
     name: 'Rocket Pod',
     description:
@@ -101,6 +111,16 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
     apply: (stats) => ({ ...stats, rocketLevel: stats.rocketLevel + 1 }),
+  },
+  {
+    id: 'devourer',
+    name: 'Devourer Swarm',
+    description:
+      'Fires a payload of hungry nanites with a fixed damage budget — when the host dies, the leftovers leap whole to the next victim (stacks: bigger payload, faster drain, longer leaps)',
+    rarity: 'rare',
+    category: 'weapon',
+    maxStacks: BASE_MAX_STACKS,
+    apply: (stats) => ({ ...stats, devourerLevel: stats.devourerLevel + 1 }),
   },
   {
     id: 'chain',
@@ -114,7 +134,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
   {
     id: 'nova',
     name: 'Nova Pulse',
-    description: 'Unlock a periodic shockwave (or pulse 15% faster, +20 damage)',
+    description: 'Unlock a periodic shockwave (or pulse 12% faster, +15 damage)',
     rarity: 'rare',
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
@@ -124,8 +144,8 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
       }
       return {
         ...stats,
-        novaIntervalMs: stats.novaIntervalMs / 1.15,
-        novaDamage: stats.novaDamage + 20,
+        novaIntervalMs: stats.novaIntervalMs / 1.12,
+        novaDamage: stats.novaDamage + 15,
       }
     },
   },
@@ -153,7 +173,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'mines',
     name: 'Mine Layer',
     description:
-      'Seeds the sky with proximity mines that detonate on contact (stacks: more mines, bigger blasts)',
+      'Every cannon lobs balloon-tethered proximity mines into the sky, where they hang until something drifts too close (stacks: more mines per volley, bigger blasts)',
     rarity: 'rare',
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
@@ -336,6 +356,20 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, twinRailLevel: stats.twinRailLevel + 1 }),
   },
   {
+    id: 'mitosis',
+    name: 'Mitosis',
+    description:
+      'Synergy: when a devoured host dies, the swarm divides — TWO payloads leap out, each carrying the full remaining budget, dividing again on every kill (stacks: longer leaps)',
+    rarity: 'epic',
+    category: 'tactic',
+    maxStacks: BASE_MAX_STACKS,
+    requires: [
+      { id: 'devourer', stacks: 2 },
+      { id: 'nanite', stacks: 2 },
+    ],
+    apply: (stats) => ({ ...stats, mitosisLevel: stats.mitosisLevel + 1 }),
+  },
+  {
     id: 'mirv',
     name: 'MIRV Warheads',
     description:
@@ -350,6 +384,64 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, mirvLevel: stats.mirvLevel + 1 }),
   },
 ]
+
+/**
+ * Consolation picks padded into the offer when the real pool can't fill it —
+ * always repeatable, applied by the scene rather than via stat stacks.
+ */
+export const FILLER_CHOICES: Array<UpgradeChoice> = [
+  {
+    id: 'filler-stardust',
+    name: 'Stardust Cache',
+    description: `Salvage crews sweep the battlefield: bank +${FILLER_REWARDS.stardust} stardust for this run immediately`,
+    rarity: 'common',
+    category: 'tactic',
+    currentStacks: 0,
+    maxStacks: 0,
+    synergyOf: null,
+  },
+  {
+    id: 'filler-repair',
+    name: 'Field Repairs',
+    description: `Work crews shore up the city: restore ${FILLER_REWARDS.repairIntegrity} integrity now`,
+    rarity: 'common',
+    category: 'tactic',
+    currentStacks: 0,
+    maxStacks: 0,
+    synergyOf: null,
+  },
+  {
+    id: 'filler-overcharge',
+    name: 'Ammo Overcharge',
+    description: `Hotter propellant in every magazine: +${FILLER_REWARDS.damagePercent}% damage for the rest of the run`,
+    rarity: 'common',
+    category: 'tactic',
+    currentStacks: 0,
+    maxStacks: 0,
+    synergyOf: null,
+  },
+]
+
+export function isFillerUpgradeId({ upgradeId }: { upgradeId: string }): boolean {
+  return FILLER_CHOICES.some((choice) => choice.id === upgradeId)
+}
+
+/** "Tesla Arc ★2 + Cloud Cover ★2" for synergy tactics, null for everything else */
+export function describeSynergyRequirements({
+  definition,
+}: {
+  definition: UpgradeDefinition
+}): string | null {
+  if (definition.requires === undefined) {
+    return null
+  }
+  return definition.requires
+    .map((requirement) => {
+      const parent = UPGRADE_DEFINITIONS.find((candidate) => candidate.id === requirement.id)
+      return `${parent?.name ?? requirement.id} ★${requirement.stacks}`
+    })
+    .join(' + ')
+}
 
 /** paragon tier nodes only raise the caps of weapons, not tactics */
 function effectiveMaxStacks({
@@ -393,6 +485,7 @@ export function rollUpgradeChoices({
   luck,
   weaponSlots,
   weaponTierBonus,
+  banished,
 }: {
   stacks: Map<string, number>
   /** random number generator returning values in [0, 1) */
@@ -402,9 +495,14 @@ export function rollUpgradeChoices({
   luck: number
   weaponSlots: number
   weaponTierBonus: number
+  /** card ids struck from this run's pool by the banish mechanic */
+  banished?: Set<string>
 }): Array<UpgradeChoice> {
   const hasFreeSlot = countOwnedWeapons({ stacks }) < weaponSlots
   const eligible = UPGRADE_DEFINITIONS.filter((definition) => {
+    if (banished?.has(definition.id) === true) {
+      return false
+    }
     const currentStacks = stacks.get(definition.id) ?? 0
     if (currentStacks >= effectiveMaxStacks({ definition, weaponTierBonus })) {
       return false
@@ -445,7 +543,7 @@ export function rollUpgradeChoices({
     remaining.splice(pickedIndex, 1)
   }
 
-  return chosen.map((definition) => ({
+  const choices: Array<UpgradeChoice> = chosen.map((definition) => ({
     id: definition.id,
     name: definition.name,
     description: definition.description,
@@ -453,7 +551,17 @@ export function rollUpgradeChoices({
     category: definition.category,
     currentStacks: stacks.get(definition.id) ?? 0,
     maxStacks: effectiveMaxStacks({ definition, weaponTierBonus }),
+    synergyOf: describeSynergyRequirements({ definition }),
   }))
+
+  // the pool ran dry (everything maxed or gated) — pad with consolation picks
+  for (const filler of FILLER_CHOICES) {
+    if (choices.length >= count) {
+      break
+    }
+    choices.push({ ...filler })
+  }
+  return choices
 }
 
 export function findUpgradeDefinition({
