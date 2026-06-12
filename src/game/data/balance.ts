@@ -69,7 +69,7 @@ export const CAPACITOR = {
 export const PASSIVE_EARNING_CAP_HOURS = 12
 
 export const NOVA = {
-  maxRadius: 240,
+  maxRadius: 320,
   expandDurationMs: 450,
   /** every pulse shoves what it hits — Concussive Pulse stacks on top of this */
   knockbackPx: 45,
@@ -90,8 +90,8 @@ export const BASE_RUN_STATS: RunStats = {
   fireIntervalMs: 650,
   projectileCount: 1,
   projectileSpeed: 430,
-  /** must comfortably cover the outermost buildings on the base arena, or the opening waves are unwinnable */
-  range: 600,
+  /** deliberately short of the outermost buildings — early losses push players toward the range upgrade route */
+  range: 480,
   pierce: 0,
   critChance: 0.05,
   critMultiplier: 2,

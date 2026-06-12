@@ -27,11 +27,7 @@ export const PATCH_NOTES: Array<PatchEntry> = [
     notes: [
       {
         kind: 'balance',
-        text: 'Base gun range raised from 480 to 600 — the starting cannon can now actually defend the outermost buildings instead of watching them burn. The opening waves are no longer a slow-motion loss.',
-      },
-      {
-        kind: 'balance',
-        text: 'Nova Pulse now knocks invaders back on every pulse, no synergy required. Concussive Pulse stacks extra shove distance on top.',
+        text: 'Nova Pulse now knocks invaders back on every pulse, no synergy required, and its shockwave reaches further (radius 240 → 320). Concussive Pulse stacks extra shove distance on top.',
       },
       {
         kind: 'balance',
