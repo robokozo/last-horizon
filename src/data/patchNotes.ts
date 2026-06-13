@@ -21,6 +21,45 @@ export interface PatchEntry {
  */
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
+    date: '2026-06-13',
+    title: 'Hand-Off',
+    blurb: 'Carry your save across the room with a camera.',
+    notes: [
+      {
+        kind: 'new',
+        text: 'Save transfer by QR code: show a QR on one device and point another device’s camera (phone or webcam) at it to copy your whole save across — no more typing a long code to move between PC and mobile.',
+      },
+      {
+        kind: 'new',
+        text: 'The home screen now tracks your favorite weapons — the cards you pick most, tallied across every run.',
+      },
+      {
+        kind: 'balance',
+        text: 'Capacitor surges last twice as long (12s base, up from 6s).',
+      },
+      {
+        kind: 'balance',
+        text: 'The flamethrower’s cone is a touch shorter, so it stays the close-range bruiser it’s meant to be.',
+      },
+      {
+        kind: 'fix',
+        text: 'Invaders are now steered to touch down inside the base guns’ reach — no more watching one land in a dead zone the cannons can’t answer. Range upgrades still widen the defended band and intercept higher.',
+      },
+      {
+        kind: 'fix',
+        text: 'Refraction now triggers honestly: a lance sweep only splits off its echo when it actually crosses a cloud, instead of any cloud on the map lighting up.',
+      },
+      {
+        kind: 'balance',
+        text: 'Refraction chains: at higher ranks a refracted echo can refract again off further clouds, cascading across the sky — the chain runs as many hops deep as your Refraction rank.',
+      },
+      {
+        kind: 'fix',
+        text: 'Cloud cover hangs where the guns can reach it — clouds no longer float far above the battle on tall (mobile/portrait) screens, so the slow and the lance’s refraction always have a bank to work with.',
+      },
+    ],
+  },
+  {
     date: '2026-06-12',
     title: 'Eighty-Eight',
     blurb: 'The flak gun finally looks like flak.',

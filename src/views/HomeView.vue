@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
+import SaveTransfer from '@/components/SaveTransfer.vue'
 import SynergyGlossary from '@/components/SynergyGlossary.vue'
 import { damageNumbersEnabled, screenShakeEnabled } from '@/game/settings'
 import { soundEngine } from '@/game/sound'
@@ -40,31 +41,6 @@ function toggleMusic(): void {
   soundEngine.setMusicEnabled({ isEnabled: isMusicOn.value })
 }
 
-// ── save transfer ─────────────────────────────────────────────────────
-const exportedCode = ref('')
-const importCode = ref('')
-const importStatus = ref('')
-
-async function onExportSave(): Promise<void> {
-  exportedCode.value = metaStore.exportSave()
-  try {
-    await navigator.clipboard.writeText(exportedCode.value)
-    importStatus.value = 'Save code copied to clipboard'
-  } catch {
-    importStatus.value = 'Copy the code below manually'
-  }
-}
-
-function onImportSave(): void {
-  if (importCode.value.trim() === '') {
-    return
-  }
-  const didImport = metaStore.importSave({ code: importCode.value })
-  importStatus.value = didImport === true ? 'Save imported!' : 'That code is not a valid save'
-  if (didImport === true) {
-    importCode.value = ''
-  }
-}
 </script>
 
 <template>
@@ -139,6 +115,28 @@ function onImportSave(): void {
           {{ Math.floor(metaStore.lifetime.totalStardustEarned) }}
         </p>
         <p class="text-slate-500">stardust earned</p>
+      </div>
+    </section>
+
+    <section
+      v-if="metaStore.favoriteWeapons.length > 0"
+      class="flex w-full max-w-md flex-col items-center gap-2"
+    >
+      <p class="text-xs font-semibold uppercase tracking-widest text-slate-500">Favorite weapons</p>
+      <div class="flex flex-wrap items-center justify-center gap-2">
+        <span
+          v-for="(weapon, index) in metaStore.favoriteWeapons.slice(0, 6)"
+          :key="weapon.id"
+          class="flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
+          :class="
+            index === 0
+              ? 'border-amber-400/40 bg-amber-400/10 text-amber-200'
+              : 'border-slate-700 bg-slate-900/60 text-slate-300'
+          "
+        >
+          <span class="font-semibold">{{ weapon.name }}</span>
+          <span class="text-slate-500">×{{ weapon.count }}</span>
+        </span>
       </div>
     </section>
 
@@ -235,39 +233,7 @@ function onImportSave(): void {
           </button>
         </div>
 
-        <div class="flex flex-col gap-2 border-t border-slate-800 pt-3">
-          <div class="flex gap-2">
-            <button
-              type="button"
-              class="cursor-pointer rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700"
-              @click="onExportSave()"
-            >
-              Export save
-            </button>
-            <input
-              v-model="importCode"
-              type="text"
-              placeholder="paste a save code…"
-              class="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-300 placeholder:text-slate-600"
-            />
-            <button
-              type="button"
-              class="cursor-pointer rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700"
-              @click="onImportSave()"
-            >
-              Import
-            </button>
-          </div>
-          <textarea
-            v-if="exportedCode !== ''"
-            :value="exportedCode"
-            readonly
-            rows="2"
-            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-[10px] text-slate-400"
-            @focus="($event.target as HTMLTextAreaElement).select()"
-          />
-          <p v-if="importStatus !== ''" class="text-xs text-slate-500">{{ importStatus }}</p>
-        </div>
+        <SaveTransfer />
 
         <div class="flex items-center gap-3 border-t border-slate-800 pt-3">
           <button

@@ -126,6 +126,11 @@ interface SwarmUnit {
   isDead: boolean
 }
 
+interface CloudUnit {
+  image: Phaser.GameObjects.Image
+  speed: number
+}
+
 /** a thermal lance beam anchored at a cannon, sweeping an arc across the sky */
 interface SweepBeam {
   originX: number
@@ -139,6 +144,10 @@ interface SweepBeam {
   reachPx: number
   /** how far the beam extends this frame — reachPx, or cut short by a blocking invader */
   currentLengthPx: number
+  /** remaining refraction hops this beam may chain — 0 is terminal (primary starts at refractionLevel) */
+  refractionsLeft: number
+  /** clouds already spent by this lance shot's whole chain (shared down it), so each refracts once */
+  chainClouds: Set<CloudUnit>
   isDead: boolean
 }
 
@@ -283,6 +292,8 @@ const LEVEL_UP_CHOICE_COUNT = 3
 const AEGIS_MIN_ALPHA = 0.15
 const AEGIS_MAX_ALPHA = 0.9
 const MAX_NANITE_DRONES = 3
+/** hard ceiling on live lance beams so a deep refraction chain can never run away */
+const MAX_ACTIVE_SWEEPS = 120
 /** at high game speed the sim runs in sub-steps this size, so fast bullets cannot tunnel through enemies */
 const MAX_SIM_STEP_MS = 20
 /** largest real-time frame delta the sim honors — a backgrounded tab hiccups one frame instead of fast-forwarding the whole pause */
@@ -379,7 +390,7 @@ export class GameScene extends Phaser.Scene {
   private rockets: Array<RocketUnit> = []
   private cannons: Array<CannonUnit> = []
   private buildings: Array<BuildingUnit> = []
-  private cloudImages: Array<{ image: Phaser.GameObjects.Image; speed: number }> = []
+  private cloudImages: Array<CloudUnit> = []
   private gemCount = 0
 
   private spawnAccumulatorMs = 0
@@ -487,7 +498,6 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.generateTextures()
     this.drawSky()
-    this.spawnClouds()
     this.drawGround()
     this.spawnBuildings()
 
@@ -499,6 +509,8 @@ export class GameScene extends Phaser.Scene {
       .setVisible(this.stats.aegisIntervalMs !== null)
       .setAlpha(AEGIS_MIN_ALPHA)
     this.syncCannons()
+    // clouds anchor to the deployed cannons' reach, so they spawn after them
+    this.spawnClouds()
     this.cooldownBars = this.add.graphics().setDepth(DEPTHS.effects)
     this.sweepGraphics = this.add.graphics().setDepth(DEPTHS.effects)
 
@@ -720,8 +732,9 @@ export class GameScene extends Phaser.Scene {
     this.aegisAccumulatorMs = 0
 
     this.shieldImage.setVisible(this.stats.aegisIntervalMs !== null).setAlpha(AEGIS_MIN_ALPHA)
-    this.spawnClouds()
     this.syncCannons()
+    // clouds anchor to the deployed cannons' reach, so they spawn after them
+    this.spawnClouds()
     this.spawnTrainingDummies()
     this.syncNaniteDrones()
     this.syncCloudCover()
@@ -968,6 +981,34 @@ export class GameScene extends Phaser.Scene {
     return targets
   }
 
+  /**
+   * Pull a ground x into the reach of the closest cannon. A recent range cut let
+   * invaders touch down in dead zones the guns couldn't answer, and players hated
+   * taking those free hits — so spawn columns and impact points are kept inside a
+   * cannon's reach. More range widens each band, so the range route still pushes
+   * the defensible line outward. `margin` trims the band so a weaving dancer's full
+   * swing stays reachable, not just its center.
+   */
+  private nearestReachableX({ x, margin = 0 }: { x: number; margin?: number }): number {
+    if (this.cannons.length === 0) {
+      return x
+    }
+    // the range is a radius from the muzzle; at ground level the circle is
+    // narrower by the muzzle's height, so solve for the horizontal half-reach
+    const verticalGap = this.groundY - this.cannonY
+    const halfReach = Math.max(
+      0,
+      Math.sqrt(Math.max(0, this.stats.range ** 2 - verticalGap ** 2)) - margin,
+    )
+    let nearest = this.cannons[0]
+    for (const cannon of this.cannons) {
+      if (Math.abs(cannon.x - x) < Math.abs(nearest.x - x)) {
+        nearest = cannon
+      }
+    }
+    return Phaser.Math.Clamp(x, nearest.x - halfReach, nearest.x + halfReach)
+  }
+
   private spawnEnemy({
     definition,
     spawnX,
@@ -981,17 +1022,30 @@ export class GameScene extends Phaser.Scene {
     impactX?: number
     affix?: EliteAffix | null
   }): void {
-    const x = spawnX ?? Math.random() * this.arenaWidth
     const y = spawnY ?? SPAWN_Y
     const targetXs = this.listImpactTargetXs()
     const targetX = targetXs[Math.floor(Math.random() * targetXs.length)]
-    const resolvedImpactX = impactX ?? targetX + (Math.random() * 2 - 1) * 40
 
     const waveScale = Math.pow(WAVES.hpGrowthPerWave, this.wave - 1)
     const speedScale = Math.min(2, Math.pow(WAVES.speedGrowthPerWave, this.wave - 1))
 
     // dancers fall straight down and weave; motherships descend to a hover
     const fallsStraight = definition.kind === 'dancer' || definition.kind === 'mothership'
+    // a dancer weaves around its spawn column — keep the whole swing reachable
+    const weaveAmplitude = definition.kind === 'dancer' ? 50 + Math.random() * 45 : 0
+
+    // motherships bombard from a hover and never crash, so they keep their
+    // entry column; everything else is steered to land where the guns reach —
+    // dancers land under their column, divers land at their impact point
+    let x = spawnX ?? Math.random() * this.arenaWidth
+    if (definition.kind === 'dancer') {
+      x = this.nearestReachableX({ x, margin: weaveAmplitude })
+    }
+    const resolvedImpactX =
+      definition.kind === 'mothership'
+        ? (impactX ?? targetX + (Math.random() * 2 - 1) * 40)
+        : this.nearestReachableX({ x: impactX ?? targetX + (Math.random() * 2 - 1) * 40 })
+
     const fallAngle =
       fallsStraight === true ? Math.PI / 2 : Math.atan2(this.groundY - y, resolvedImpactX - x)
     const image = this.add
@@ -1030,7 +1084,7 @@ export class GameScene extends Phaser.Scene {
         definition.kind === 'dancer'
           ? {
               baseX: x,
-              amplitudeX: 50 + Math.random() * 45,
+              amplitudeX: weaveAmplitude,
               omegaRadPerSec: 2.6 + Math.random() * 1.4,
               phase: Math.random() * Math.PI * 2,
             }
@@ -3497,6 +3551,8 @@ export class GameScene extends Phaser.Scene {
         targetLengthPx < sweep.currentLengthPx
           ? targetLengthPx
           : Math.min(targetLengthPx, sweep.currentLengthPx + sweep.reachPx * (delta / 180))
+      // refract off whatever cloud this frame's beam happens to pass through
+      this.refractSweepOffClouds({ sweep })
       const thermiteDps =
         this.stats.thermiteLevel > 0
           ? this.stats.damage *
@@ -3583,57 +3639,102 @@ export class GameScene extends Phaser.Scene {
       hitEnemies: new Set(),
       reachPx,
       currentLengthPx: reachPx,
+      // refraction is incidental: the beam refracts off a cloud only if its sweep
+      // happens to pass through one (handled live in updateLanceSweeps). Higher
+      // refraction ranks let the echoes chain — each hop spends one of these.
+      refractionsLeft: this.stats.refractionLevel,
+      chainClouds: new Set(),
       isDead: false,
     })
+  }
 
-    // refraction synergy: the cloud bank splits off a second, weaker sweep
-    if (this.stats.refractionLevel > 0 && this.cloudImages.length > 0) {
-      let nearestCloud = this.cloudImages[0]
-      let nearestDistanceSq = Number.POSITIVE_INFINITY
-      for (const cloud of this.cloudImages) {
-        const distanceSq =
-          (cloud.image.x - target.image.x) ** 2 + (cloud.image.y - target.image.y) ** 2
-        if (distanceSq < nearestDistanceSq) {
-          nearestDistanceSq = distanceSq
-          nearestCloud = cloud
-        }
-      }
-      const echoOriginX = nearestCloud.image.x
-      const echoOriginY = nearestCloud.image.y
-      const echoCenter = Math.atan2(target.image.y - echoOriginY, target.image.x - echoOriginX)
-      const echoReachPx =
-        Math.hypot(target.image.x - echoOriginX, target.image.y - echoOriginY) + target.radius
-      const echoSpan = spanRad * SYNERGIES.refraction.arcFactor
-      const echoFlare = this.add
-        .circle(echoOriginX, echoOriginY, 8, 0xfefce8, 0.9)
-        .setDepth(DEPTHS.effects)
-      this.tweens.add({
-        targets: echoFlare,
-        radius: 18,
-        alpha: 0,
-        duration: 300,
-        ease: 'Cubic.easeOut',
-        onComplete: () => {
-          echoFlare.destroy()
-        },
-      })
-      this.sweeps.push({
-        originX: echoOriginX,
-        originY: echoOriginY,
-        // a cloud can fire downward — no sky clamp on the refracted beam
-        angleRad: echoCenter,
-        endAngleRad: echoCenter + echoSpan * directionSign,
-        directionSign,
-        damage:
-          sweepDamage *
-          (SYNERGIES.refraction.damageFactorBase +
-            SYNERGIES.refraction.damageFactorPerLevel * (this.stats.refractionLevel - 1)),
-        hitEnemies: new Set(),
-        reachPx: echoReachPx,
-        currentLengthPx: echoReachPx,
-        isDead: false,
-      })
+  /**
+   * refraction synergy: while a lance beam sweeps, any cloud its current path
+   * crosses splits off a second, weaker beam from that cloud. It's not a search —
+   * the refraction only happens where the beam incidentally meets a cloud. Echoes
+   * keep one fewer hop, so higher refraction ranks chain refractions deeper across
+   * the sky; a cloud already spent by this shot's chain won't refract again.
+   */
+  private refractSweepOffClouds({ sweep }: { sweep: SweepBeam }): void {
+    if (sweep.refractionsLeft <= 0) {
+      return
     }
+    const directionX = Math.cos(sweep.angleRad)
+    const directionY = Math.sin(sweep.angleRad)
+    for (const cloud of this.cloudImages) {
+      if (sweep.chainClouds.has(cloud) === true) {
+        continue
+      }
+      // closest approach of the live beam segment to the cloud's center
+      const toCloudX = cloud.image.x - sweep.originX
+      const toCloudY = cloud.image.y - sweep.originY
+      const along = Phaser.Math.Clamp(
+        toCloudX * directionX + toCloudY * directionY,
+        0,
+        sweep.currentLengthPx,
+      )
+      const closestX = sweep.originX + directionX * along
+      const closestY = sweep.originY + directionY * along
+      const cloudRadius = Math.max(cloud.image.displayWidth, cloud.image.displayHeight) * 0.45
+      const gap = LANCE.beamHalfWidthPx + cloudRadius
+      if ((cloud.image.x - closestX) ** 2 + (cloud.image.y - closestY) ** 2 > gap ** 2) {
+        continue
+      }
+      // spend the cloud for the whole chain (shared set) so beams can't ping-pong
+      sweep.chainClouds.add(cloud)
+      this.spawnRefractedSweep({ cloud, sourceSweep: sweep })
+    }
+  }
+
+  /** the weaker beam a cloud throws off when a lance sweep passes through it */
+  private spawnRefractedSweep({
+    cloud,
+    sourceSweep,
+  }: {
+    cloud: CloudUnit
+    sourceSweep: SweepBeam
+  }): void {
+    // safety valve: never let a deep chain flood the field with beams
+    if (this.sweeps.length >= MAX_ACTIVE_SWEEPS) {
+      return
+    }
+    const level = Math.max(1, this.stats.lanceLevel)
+    const echoSpan =
+      Phaser.Math.DegToRad(LANCE.sweepArcDegBase + LANCE.sweepArcDegPerLevel * (level - 1)) *
+      SYNERGIES.refraction.arcFactor
+    const echoFlare = this.add
+      .circle(cloud.image.x, cloud.image.y, 8, 0xfefce8, 0.9)
+      .setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: echoFlare,
+      radius: 18,
+      alpha: 0,
+      duration: 300,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        echoFlare.destroy()
+      },
+    })
+    this.sweeps.push({
+      originX: cloud.image.x,
+      originY: cloud.image.y,
+      // the echo carries on in the beam's heading; a cloud can fire downward, no sky clamp
+      angleRad: sourceSweep.angleRad,
+      endAngleRad: sourceSweep.angleRad + echoSpan * sourceSweep.directionSign,
+      directionSign: sourceSweep.directionSign,
+      damage:
+        sourceSweep.damage *
+        (SYNERGIES.refraction.damageFactorBase +
+          SYNERGIES.refraction.damageFactorPerLevel * (this.stats.refractionLevel - 1)),
+      hitEnemies: new Set(),
+      reachPx: sourceSweep.reachPx,
+      currentLengthPx: sourceSweep.reachPx,
+      // one fewer hop than its parent — the chain runs as deep as the refraction rank
+      refractionsLeft: sourceSweep.refractionsLeft - 1,
+      // share the parent's spent-cloud set so the whole chain consumes each cloud once
+      chainClouds: sourceSweep.chainClouds,
+      isDead: false,
+    })
   }
 
   /** redrawn every frame: the lance is a laser firing out of the gun, sweeping the sky */
@@ -5228,21 +5329,48 @@ export class GameScene extends Phaser.Scene {
     graphics.fillCircle(moonX + 12, moonY - 12, 3)
   }
 
+  /**
+   * A sky spot the guns can reach. Clouds hang here so the slow always lands on
+   * the lane invaders fall through and the lance can sweep across them — on tall
+   * portrait (mobile) arenas a fixed altitude otherwise floats the bank far above
+   * the ground-mounted cannons' reach.
+   */
+  private randomInRangeCloudPosition(): { x: number; y: number } {
+    if (this.cannons.length === 0) {
+      return { x: Math.random() * this.arenaWidth, y: 120 + Math.random() * 200 }
+    }
+    const cannon = this.cannons[Math.floor(Math.random() * this.cannons.length)]
+    // 35–82% of the way out, biased up into the sky so the bank hangs over the lane
+    const radius = this.stats.range * (0.35 + Math.random() * 0.47)
+    const angleFromUp = (Math.random() * 2 - 1) * (Math.PI * 0.42)
+    return {
+      x: Phaser.Math.Clamp(cannon.x + Math.sin(angleFromUp) * radius, 60, this.arenaWidth - 60),
+      y: Phaser.Math.Clamp(
+        this.cannonY - Math.cos(angleFromUp) * radius,
+        MINE_CEILING_Y,
+        this.cannonY - 80,
+      ),
+    }
+  }
+
   private spawnClouds(): void {
     const cloudConfigs = [
-      { textureKey: 'cloud-0', xFraction: 0.16, y: 130, speed: 7, alpha: 0.14, scale: 1.2 },
-      { textureKey: 'cloud-1', xFraction: 0.48, y: 220, speed: 11, alpha: 0.1, scale: 0.9 },
-      { textureKey: 'cloud-2', xFraction: 0.77, y: 320, speed: 15, alpha: 0.12, scale: 1 },
-      { textureKey: 'cloud-1', xFraction: 0.3, y: 420, speed: 19, alpha: 0.08, scale: 1.4 },
+      { textureKey: 'cloud-0', speed: 7, alpha: 0.14, scale: 1.2 },
+      { textureKey: 'cloud-1', speed: 11, alpha: 0.1, scale: 0.9 },
+      { textureKey: 'cloud-2', speed: 15, alpha: 0.12, scale: 1 },
+      { textureKey: 'cloud-1', speed: 19, alpha: 0.08, scale: 1.4 },
     ]
-    this.cloudImages = cloudConfigs.map((config) => ({
-      image: this.add
-        .image(config.xFraction * this.arenaWidth, config.y, config.textureKey)
-        .setAlpha(config.alpha)
-        .setScale(config.scale)
-        .setDepth(DEPTHS.clouds),
-      speed: config.speed,
-    }))
+    this.cloudImages = cloudConfigs.map((config) => {
+      const { x, y } = this.randomInRangeCloudPosition()
+      return {
+        image: this.add
+          .image(x, y, config.textureKey)
+          .setAlpha(config.alpha)
+          .setScale(config.scale)
+          .setDepth(DEPTHS.clouds),
+        speed: config.speed,
+      }
+    })
   }
 
   /** cloud cover: existing clouds turn active (denser), seeding adds new ones */
@@ -5259,12 +5387,9 @@ export class GameScene extends Phaser.Scene {
     )
     while (this.cloudImages.length < desiredCount) {
       const textureKey = `cloud-${Math.floor(Math.random() * 3)}`
+      const { x, y } = this.randomInRangeCloudPosition()
       const image = this.add
-        .image(
-          Math.random() * this.arenaWidth,
-          90 + Math.random() * this.groundY * 0.55,
-          textureKey,
-        )
+        .image(x, y, textureKey)
         .setAlpha(0)
         .setScale(0.9 + Math.random() * 0.6)
         .setDepth(DEPTHS.clouds)
@@ -5273,12 +5398,33 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** widest band of ground-x the cannons can reach at altitude `y` (union over guns) */
+  private reachableXSpanAt({ y }: { y: number }): { minX: number; maxX: number } {
+    if (this.cannons.length === 0) {
+      return { minX: 0, maxX: this.arenaWidth }
+    }
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    for (const cannon of this.cannons) {
+      const halfReach = Math.sqrt(Math.max(0, this.stats.range ** 2 - (y - cannon.y) ** 2))
+      minX = Math.min(minX, cannon.x - halfReach)
+      maxX = Math.max(maxX, cannon.x + halfReach)
+    }
+    if (maxX <= minX) {
+      return { minX: 0, maxX: this.arenaWidth }
+    }
+    return { minX, maxX }
+  }
+
   private driftClouds({ delta }: { delta: number }): void {
     const seconds = delta / 1_000
     for (const cloud of this.cloudImages) {
       cloud.image.x += cloud.speed * seconds
-      if (cloud.image.x > this.arenaWidth + 160) {
-        cloud.image.x = -160
+      // wrap inside the band the guns can reach at this altitude, so the cloud
+      // weapon's bank never drifts off into a corner it can't defend
+      const span = this.reachableXSpanAt({ y: cloud.image.y })
+      if (cloud.image.x > span.maxX) {
+        cloud.image.x = span.minX
       }
     }
   }

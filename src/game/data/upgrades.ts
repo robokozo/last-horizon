@@ -515,7 +515,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'refraction',
     name: 'Refraction',
     description:
-      'Synergy: a cloud refracts every lance shot, splitting off a second weaker sweep from the cloud bank (stacks: stronger echo)',
+      'Synergy: when a lance sweep crosses a cloud, the cloud refracts it into a second weaker sweep — at higher ranks those echoes refract again off further clouds, chaining across the sky (stacks: deeper chains, stronger echoes)',
     rarity: 'epic',
     category: 'tactic',
     maxStacks: BASE_MAX_STACKS,

@@ -87,7 +87,11 @@ export const BASE_RUN_STATS: RunStats = {
   fireIntervalMs: 650,
   projectileCount: 1,
   projectileSpeed: 430,
-  /** deliberately short of the outermost buildings — early losses push players toward the range upgrade route */
+  /**
+   * short of the arena edges — range upgrades still widen the defended band and let the guns
+   * intercept higher and sooner. invaders are steered to touch down inside this radius
+   * (see GameScene.nearestReachableX) so the base guns can always answer a landing.
+   */
   range: 480,
   pierce: 0,
   critChance: 0.05,
@@ -105,7 +109,7 @@ export const BASE_RUN_STATS: RunStats = {
   passiveDustPerMinute: 0,
   capacitorChargeRate: 1,
   surgeDamageBonus: 0.25,
-  surgeDurationMs: 6_000,
+  surgeDurationMs: 12_000,
   novaIntervalMs: null,
   novaDamage: 40,
   aegisIntervalMs: null,
@@ -252,7 +256,11 @@ export const SYNERGIES = {
     lockOnFactorBase: 0.7,
     lockOnFactorPerLevel: 0.06,
   },
-  /** thermal lance × cloud cover: a cloud refracts a second, weaker sweep */
+  /**
+   * thermal lance × cloud cover: a sweep that crosses a cloud refracts a second, weaker sweep off it.
+   * the refraction skill level also sets how many hops the chain can take — echoes can refract again off
+   * further clouds, each hop one rank deeper and weaker (damageFactor).
+   */
   refraction: {
     damageFactorBase: 0.5,
     damageFactorPerLevel: 0.1,
@@ -435,7 +443,7 @@ export const FLAME = {
   baseIntervalMs: 2_200,
   intervalStepMs: 180,
   minIntervalMs: 1_300,
-  rangePx: 330,
+  rangePx: 270,
   rangePerLevel: 24,
   coneHalfAngleRad: 0.42,
   /** per-burst damage to everything in the cone = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */

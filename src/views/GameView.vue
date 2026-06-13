@@ -83,6 +83,11 @@ function cycleSpeed(): void {
 }
 
 function chooseUpgrade({ upgradeId }: { upgradeId: string }): void {
+  // tally weapon picks for the home "favorites" readout before the offer clears
+  const choice = levelUpOffer.value?.choices.find((candidate) => candidate.id === upgradeId)
+  if (choice?.category === 'weapon') {
+    metaStore.recordWeaponPick({ id: upgradeId })
+  }
   levelUpOffer.value = null
   gameEventBus.emit({ event: 'upgrade-chosen', payload: { upgradeId } })
 }

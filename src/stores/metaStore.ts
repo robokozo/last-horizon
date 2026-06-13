@@ -2,6 +2,7 @@ import { useLocalStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
 
+import { UPGRADE_DEFINITIONS } from '@/game/data/upgrades'
 import type { RunResult } from '@/game/types'
 import {
   ROOT_NODE_ID,
@@ -10,6 +11,14 @@ import {
   interestPercentFrom,
   listAdjacentNodeIds,
 } from '@/skills/skillTree'
+
+/** display names for the weapon cards, so favorites can be shown without the run loaded */
+const WEAPON_NAME_BY_ID = new Map(
+  UPGRADE_DEFINITIONS.filter((definition) => definition.category === 'weapon').map((definition) => [
+    definition.id,
+    definition.name,
+  ]),
+)
 
 interface LifetimeStats {
   runs: number
@@ -39,6 +48,9 @@ export const useMetaStore = defineStore('meta', () => {
     ),
   )
   const prestigeLevel = useLocalStorage<number>('pd-prestige', 0)
+  // how many times each weapon card has been picked across all runs — drives the
+  // "favorite weapons" readout. Lifetime preference data, so it survives prestige.
+  const weaponPicks = useLocalStorage<Record<string, number>>('pd-weapon-picks', {})
 
   // saves from before a tree redesign reference node ids that no longer
   // exist: reset the tree and refund everything ever earned
@@ -52,6 +64,19 @@ export const useMetaStore = defineStore('meta', () => {
   }
 
   const unlockedNodeIdSet = computed(() => new Set(unlockedNodeIds.value))
+
+  /** weapons the player picks most, most-picked first — for the home favorites list */
+  const favoriteWeapons = computed(() =>
+    Object.entries(weaponPicks.value)
+      .filter(([id, count]) => count > 0 && WEAPON_NAME_BY_ID.has(id))
+      .map(([id, count]) => ({ id, name: WEAPON_NAME_BY_ID.get(id) as string, count }))
+      .sort((a, b) => b.count - a.count),
+  )
+
+  /** count a weapon card the player chose during a run */
+  function recordWeaponPick({ id }: { id: string }): void {
+    weaponPicks.value = { ...weaponPicks.value, [id]: (weaponPicks.value[id] ?? 0) + 1 }
+  }
 
   /** points bought so far (the free root doesn't count) — board progress */
   const paragonLevel = computed(() => Math.max(0, unlockedNodeIds.value.length - 1))
@@ -122,13 +147,14 @@ export const useMetaStore = defineStore('meta', () => {
     return true
   }
 
-  /** wipe the save entirely: stardust, tree, lifetime stats, prestige */
+  /** wipe the save entirely: stardust, tree, lifetime stats, prestige, favorites */
   function resetAllProgress(): void {
     stardust.value = 0
     unlockedNodeIds.value = [ROOT_NODE_ID]
     treeSpent.value = 0
     prestigeLevel.value = 0
     lifetime.value = { ...DEFAULT_LIFETIME_STATS }
+    weaponPicks.value = {}
   }
 
   /** the whole save as a copyable code (base64 JSON) for moving between devices */
@@ -140,6 +166,7 @@ export const useMetaStore = defineStore('meta', () => {
       treeSpent: treeSpent.value,
       prestigeLevel: prestigeLevel.value,
       lifetime: lifetime.value,
+      weaponPicks: weaponPicks.value,
     }
     return btoa(JSON.stringify(payload))
   }
@@ -153,6 +180,7 @@ export const useMetaStore = defineStore('meta', () => {
         treeSpent?: number
         prestigeLevel?: number
         lifetime?: LifetimeStats
+        weaponPicks?: Record<string, number>
       }
       if (
         typeof payload.stardust !== 'number' ||
@@ -184,6 +212,16 @@ export const useMetaStore = defineStore('meta', () => {
         bestWave: Number(payload.lifetime.bestWave ?? 0),
         totalStardustEarned: Number(payload.lifetime.totalStardustEarned ?? 0),
       }
+      // older codes carry no favorites — keep whatever this device already tallied
+      if (payload.weaponPicks !== undefined && payload.weaponPicks !== null) {
+        const imported: Record<string, number> = {}
+        for (const [id, count] of Object.entries(payload.weaponPicks)) {
+          if (typeof count === 'number' && Number.isFinite(count) && count > 0) {
+            imported[id] = Math.floor(count)
+          }
+        }
+        weaponPicks.value = imported
+      }
       return true
     } catch {
       return false
@@ -209,6 +247,9 @@ export const useMetaStore = defineStore('meta', () => {
     stardust,
     unlockedNodeIds,
     lifetime,
+    weaponPicks,
+    favoriteWeapons,
+    recordWeaponPick,
     unlockedNodeIdSet,
     availableNodeIdSet,
     paragonLevel,
