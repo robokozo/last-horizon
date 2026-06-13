@@ -8,7 +8,8 @@ on level-up, and cross-run progression on a Diablo-style paragon tree.
 ## Stack
 
 - Vue 3 + TypeScript (strict, type-strippable) + Vite
-- Vue Router (`/` menu, `/game` run, `/skills` paragon tree)
+- Vue Router (`/` menu, `/game` run, `/skills` paragon tree, `/lab` training
+  range, `/patch-notes`)
 - Phaser 4 for the game scene (all sprites generated in code — no asset files)
 - Pinia + VueUse `useLocalStorage` for persistent meta progression
 - Tailwind CSS 4
@@ -32,14 +33,21 @@ lost. A speed button cycles the sim ×1 → ×2 → ×5 (sub-stepped so fast bul
 cannot tunnel through enemies), and weapon cooldown bars sit bottom-left.
 
 **Cross-run:** runs award stardust (waves + kills + levels, scaled by tree
-bonuses). Spend it on the paragon tree — 115 nodes in 6 rotationally symmetric
-branches (Offense / Arsenal / Tech / Defense / Sensors / Fortune), generated
-from one slot-geometry template rotated through 60°. Adjacent branches are
-ring-linked at the fork tier, so you can path around the board without going
-back through the core. Each branch ends in a keystone that changes how runs
-start (Executioner, Autoloaders, Overdrive Core, Aegis Protocol, Farsight
-Protocol, Star Harvest). Free full-refund respec; saves from older tree
-layouts migrate with a full refund.
+bonuses, plus interest on unspent dust and per-minute trickle from Reactor
+nodes). Spend it on the paragon tree — 134 nodes in 7 rotationally symmetric
+branches (Offense / Arsenal / Tech / Defense / Sensors / Fortune / Reactor),
+generated from one slot-geometry template rotated through ~51°. Adjacent
+branches are ring-linked at the fork tier, so you can path around the board
+without going back through the core. Each branch ends in a keystone that
+changes how runs start (Executioner, Autoloaders, Overdrive Core, Aegis
+Protocol, Farsight Protocol, Star Harvest, Capacitor Array). Free full-refund
+respec; saves from older tree layouts migrate with a full refund.
+
+**Prestige:** completing the whole board offers a prestige — wipe stardust and
+the tree, and the camera permanently zooms out to a wider front with one more
+gun emplacement (up to 10). Weapon pairs unlock synergy tactics (32 so far —
+see `docs/SYNERGIES.md` for the full matrix and roadmap), browsable in-game
+via the ⛓ glossary.
 
 ## Architecture notes
 
