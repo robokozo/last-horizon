@@ -70,7 +70,7 @@ that builds and deploys `dist/` to GitHub Pages on every push to `main`.
 3. Under **Build and deployment**, choose **Source: GitHub Actions**.
 4. Push to `main` (or run the workflow manually in **Actions**).
 
-Live site URL: https://robokozo.github.io/planet-defense/
+Live site URL: https://robokozo.github.io/last-horizon/
 
 The workflow sets `VITE_BASE_PATH` to `/<repo-name>/` automatically so the app
 is served correctly from a project Pages URL.
@@ -78,7 +78,7 @@ is served correctly from a project Pages URL.
 If you want to test the same base path locally, run:
 
 ```sh
-set VITE_BASE_PATH=/planet-defense/
+set VITE_BASE_PATH=/last-horizon/
 npm run build
 npm run preview
 ```
