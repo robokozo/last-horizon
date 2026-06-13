@@ -41,6 +41,22 @@ export const PATCH_NOTES: Array<PatchEntry> = [
         kind: 'balance',
         text: 'Cloud Seeding earns its name: the jet now trails a dense contrail of fresh clouds behind it (a drop every ~0.3s, faster with ranks) and the cloud cap grows +5 per rank, so a strafing pass paints a real weather front.',
       },
+      {
+        kind: 'balance',
+        text: 'Static Mines is now Magnetic Mines: instead of zapping (which was Storm Front with extra steps), armed mines project a magnetic field that drags nearby invaders into their blast radius. Mines themselves hold station again — the balloons just rise and wait.',
+      },
+      {
+        kind: 'balance',
+        text: 'Lock Down freezes last much longer: 4s base (up from 2.5s) and +0.7s per rank.',
+      },
+      {
+        kind: 'fix',
+        text: 'Glassed Sky now shows its work: the strike zone stays visibly molten, shimmering orange with embers boiling off while everything inside burns.',
+      },
+      {
+        kind: 'balance',
+        text: 'Salvage Protocol was out-flakking the flak gun — consumed hosts now burst into a smaller ring of weaker fragments. In exchange, the Flak Gun itself got hotter: 6 base fragments (up from 5) at 60% damage each (up from 55%).',
+      },
     ],
   },
   {

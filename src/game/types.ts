@@ -83,7 +83,7 @@ export interface RunStats {
   refractionLevel: number
   overwatchLevel: number
   concussiveLevel: number
-  staticMinesLevel: number
+  magnetLevel: number
   smokescreenLevel: number
   cryoLevel: number
   salvageLevel: number

@@ -150,7 +150,7 @@ export const BASE_RUN_STATS: RunStats = {
   refractionLevel: 0,
   overwatchLevel: 0,
   concussiveLevel: 0,
-  staticMinesLevel: 0,
+  magnetLevel: 0,
   smokescreenLevel: 0,
   cryoLevel: 0,
   salvageLevel: 0,
@@ -269,12 +269,12 @@ export const SYNERGIES = {
     knockbackPxBase: 70,
     knockbackPxPerLevel: 30,
   },
-  /** mine layer × tesla arc: waiting mines zap and stun whatever drifts close */
-  staticmines: {
-    zapIntervalMs: 900,
-    zapRadiusPx: 90,
-    damageMultBase: 0.5,
-    damageMultPerLevel: 0.25,
+  /** balloon mines × tesla arc: armed mines drag nearby invaders into their blast radius */
+  magnet: {
+    pullRadiusPxBase: 120,
+    pullRadiusPxPerLevel: 25,
+    pullSpeedPxPerSecBase: 35,
+    pullSpeedPxPerSecPerLevel: 12,
   },
   /** mine layer × cloud cover: detonations leave a slowing smoke bank */
   smokescreen: {
@@ -286,12 +286,12 @@ export const SYNERGIES = {
     chillMsPerLevel: 400,
     chillSlowFactor: 0.65,
   },
-  /** devourer × flak: a consumed host bursts into a ring of flak fragments */
+  /** devourer × flak: a consumed host bursts into a small ring of flak fragments */
   salvage: {
-    fragmentsBase: 6,
-    fragmentsPerLevel: 2,
-    damageMultBase: 0.4,
-    damageMultPerLevel: 0.15,
+    fragmentsBase: 3,
+    fragmentsPerLevel: 1,
+    damageMultBase: 0.35,
+    damageMultPerLevel: 0.1,
   },
   /** salvo × rocket pod: main-gun kills shave time off the rocket cooldown */
   momentum: {
@@ -356,9 +356,6 @@ export const MINES = {
   maxActivePerCannon: 6,
   armDelayMs: 500,
   proximityPx: 30,
-  /** armed mines catch the wind toward prey inside this radius, so slowed invaders can't stall the field */
-  seekRadiusPx: 150,
-  seekSpeedPxPerSec: 30,
   blastRadius: 85,
   blastRadiusPerLevel: 8,
   /** mine damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
@@ -478,8 +475,8 @@ export const LOCKDOWN = {
   missileSpeedPxPerSec: 340,
   pulseRadius: 95,
   pulseRadiusPerLevel: 24,
-  baseFreezeMs: 2_500,
-  freezeMsPerLevel: 400,
+  baseFreezeMs: 4_000,
+  freezeMsPerLevel: 700,
 } as const
 
 export const RAILGUN = {
@@ -561,10 +558,10 @@ export const FLAK = {
   minIntervalMs: 2_200,
   /** detonate when within enemy radius + this many px */
   fuseDistancePx: 26,
-  baseFragments: 5,
+  baseFragments: 6,
   fragmentsPerLevel: 2,
   /** each fragment deals this percent of base bullet damage */
-  baseDamagePercent: 55,
+  baseDamagePercent: 60,
   damagePercentPerLevel: 5,
   fragmentTravelPx: 150,
   fragmentSpeedFactor: 0.75,

@@ -151,8 +151,6 @@ interface MineUnit {
   /** randomizes the bobbing motion so mines don't sway in lockstep */
   bobPhase: number
   armRemainingMs: number
-  /** static mines synergy: time since the mine last zapped something */
-  zapAccumulatorMs: number
   isDead: boolean
 }
 
@@ -3753,42 +3751,22 @@ export class GameScene extends Phaser.Scene {
     }
     this.mineShells = this.mineShells.filter((shell) => shell.isDead === false)
 
+    // magnetic mines synergy: every armed mine drags nearby invaders toward it
+    const magnetRadius =
+      this.stats.magnetLevel > 0
+        ? SYNERGIES.magnet.pullRadiusPxBase +
+          SYNERGIES.magnet.pullRadiusPxPerLevel * (this.stats.magnetLevel - 1)
+        : 0
+    const magnetSpeed =
+      SYNERGIES.magnet.pullSpeedPxPerSecBase +
+      SYNERGIES.magnet.pullSpeedPxPerSecPerLevel * Math.max(0, this.stats.magnetLevel - 1)
+
     for (const mine of this.mines) {
       if (mine.isDead === true) {
         continue
       }
-      // armed mines catch the wind toward nearby prey — invaders crawling
-      // through cloud cover can't stall the minefield just out of reach
-      let prey: EnemyUnit | null = null
-      if (mine.armRemainingMs <= 0) {
-        let preyDistanceSq = MINES.seekRadiusPx ** 2
-        for (const enemy of this.enemies) {
-          if (enemy.isDead === true) {
-            continue
-          }
-          const distanceSq =
-            (enemy.image.x - mine.image.x) ** 2 + (enemy.image.y - mine.image.y) ** 2
-          if (distanceSq <= preyDistanceSq) {
-            preyDistanceSq = distanceSq
-            prey = enemy
-          }
-        }
-      }
-      if (prey !== null) {
-        const angle = Math.atan2(prey.image.y - mine.image.y, prey.image.x - mine.image.x)
-        mine.image.x = Phaser.Math.Clamp(
-          mine.image.x + Math.cos(angle) * MINES.seekSpeedPxPerSec * seconds,
-          20,
-          this.arenaWidth - 20,
-        )
-        mine.balloonImage.x = mine.image.x
-        mine.baseY = Phaser.Math.Clamp(
-          mine.baseY + Math.sin(angle) * MINES.seekSpeedPxPerSec * seconds,
-          MINE_CEILING_Y,
-          this.groundY - 80,
-        )
-      } else if (mine.baseY > MINE_CEILING_Y) {
-        // the balloon slowly lifts the idle mine, holding just under the top of the sky
+      // the balloon slowly lifts the mine, holding just under the top of the sky
+      if (mine.baseY > MINE_CEILING_Y) {
         mine.baseY = Math.max(MINE_CEILING_Y, mine.baseY - MINE_RISE_SPEED_PX_PER_SEC * seconds)
       }
       const bobOffsetY = Math.sin((this.elapsedMs / 1_000) * 1.6 + mine.bobPhase) * 3
@@ -3798,42 +3776,29 @@ export class GameScene extends Phaser.Scene {
         mine.armRemainingMs -= delta
         continue
       }
-      // static mines synergy: a waiting mine zaps and stuns whatever drifts near
-      if (this.stats.staticMinesLevel > 0) {
-        mine.zapAccumulatorMs += delta
-        if (mine.zapAccumulatorMs >= SYNERGIES.staticmines.zapIntervalMs) {
-          let zapTarget: EnemyUnit | null = null
-          let zapDistanceSq = SYNERGIES.staticmines.zapRadiusPx ** 2
-          for (const enemy of this.enemies) {
-            if (enemy.isDead === true) {
-              continue
-            }
-            const distanceSq =
-              (enemy.image.x - mine.image.x) ** 2 + (enemy.image.y - mine.image.y) ** 2
-            if (distanceSq <= zapDistanceSq) {
-              zapDistanceSq = distanceSq
-              zapTarget = enemy
-            }
+      if (magnetRadius > 0) {
+        for (const enemy of this.enemies) {
+          // the mothership is far too heavy for a balloon magnet
+          if (enemy.isDead === true || enemy.definition.kind === 'mothership') {
+            continue
           }
-          if (zapTarget === null) {
-            mine.zapAccumulatorMs = SYNERGIES.staticmines.zapIntervalMs
-          } else {
-            mine.zapAccumulatorMs = 0
-            this.drawLightningBolt({
-              points: [
-                { x: mine.image.x, y: mine.image.y },
-                { x: zapTarget.image.x, y: zapTarget.image.y },
-              ],
-            })
-            this.damageEnemy({
-              enemy: zapTarget,
-              amount:
-                this.stats.damage *
-                (SYNERGIES.staticmines.damageMultBase +
-                  SYNERGIES.staticmines.damageMultPerLevel * (this.stats.staticMinesLevel - 1)),
-              source: 'mines',
-            })
-            this.applyStun({ enemy: zapTarget, durationMs: CHAIN.stunMsBase })
+          const towardX = mine.image.x - enemy.image.x
+          const towardY = mine.image.y - enemy.image.y
+          const distance = Math.hypot(towardX, towardY)
+          if (distance > magnetRadius || distance < 1) {
+            continue
+          }
+          const stepPx = magnetSpeed * seconds
+          const moveX = (towardX / distance) * stepPx
+          const moveY = (towardY / distance) * stepPx
+          enemy.image.x += moveX
+          enemy.image.y += moveY
+          // weavers and patrollers compute x from a base — drag it along too
+          if (enemy.zigzag !== null) {
+            enemy.zigzag.baseX += moveX
+          }
+          if (enemy.patrol !== null) {
+            enemy.patrol.baseX += moveX
           }
         }
       }
@@ -3932,7 +3897,6 @@ export class GameScene extends Phaser.Scene {
       baseY: y,
       bobPhase: Math.random() * Math.PI * 2,
       armRemainingMs: MINES.armDelayMs,
-      zapAccumulatorMs: 0,
       isDead: false,
     })
   }
@@ -4052,6 +4016,43 @@ export class GameScene extends Phaser.Scene {
         if (distanceSq <= (radius + enemy.radius) ** 2) {
           this.igniteEnemy({ enemy, dps: burnDps })
         }
+      }
+      // the zone visibly stays molten: a glassed shimmer plus embers boiling off it
+      const molten = this.add
+        .circle(strike.x, strike.y, radius * 0.85, 0xf97316, 0.32)
+        .setDepth(DEPTHS.units - 0.2)
+      this.tweens.add({
+        targets: molten,
+        radius: radius,
+        alpha: 0,
+        duration: 2_600,
+        ease: 'Sine.easeOut',
+        onComplete: () => {
+          molten.destroy()
+        },
+      })
+      const rim = this.add
+        .circle(strike.x, strike.y, radius * 0.9)
+        .setStrokeStyle(3, 0xfbbf24, 0.7)
+        .setDepth(DEPTHS.units - 0.2)
+      this.tweens.add({
+        targets: rim,
+        radius: radius * 1.05,
+        alpha: 0,
+        duration: 2_200,
+        ease: 'Sine.easeOut',
+        onComplete: () => {
+          rim.destroy()
+        },
+      })
+      for (let index = 0; index < 10; index += 1) {
+        this.time.delayedCall(Math.random() * 1_800, () => {
+          this.spawnExhaustPuff({
+            x: strike.x + (Math.random() * 2 - 1) * radius * 0.8,
+            y: strike.y + (Math.random() * 2 - 1) * radius * 0.5,
+            color: Math.random() < 0.5 ? 0xfb923c : 0xfde047,
+          })
+        })
       }
     }
   }

@@ -554,10 +554,10 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, concussiveLevel: stats.concussiveLevel + 1 }),
   },
   {
-    id: 'staticmines',
-    name: 'Static Mines',
+    id: 'magnet',
+    name: 'Magnetic Mines',
     description:
-      'Synergy: waiting mines crackle with charge, zapping and stunning anything that drifts near without detonating (stacks: stronger zaps)',
+      'Synergy: armed mines project a magnetic field, dragging nearby invaders into their blast radius (stacks: wider, stronger pull)',
     rarity: 'epic',
     category: 'tactic',
     maxStacks: BASE_MAX_STACKS,
@@ -565,7 +565,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
       { id: 'mines', stacks: 2 },
       { id: 'chain', stacks: 2 },
     ],
-    apply: (stats) => ({ ...stats, staticMinesLevel: stats.staticMinesLevel + 1 }),
+    apply: (stats) => ({ ...stats, magnetLevel: stats.magnetLevel + 1 }),
   },
   {
     id: 'smokescreen',
