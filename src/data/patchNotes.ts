@@ -42,6 +42,10 @@ export const PATCH_NOTES: Array<PatchEntry> = [
         text: 'The synergy glossary has a quick “For my build” toggle that filters to just the combos your current cards have started toward.',
       },
       {
+        kind: 'new',
+        text: 'Level-up cards now flag a “⚡ Combos with …” badge when the offered card would pair with a weapon you already own to open a synergy — hover for which ones.',
+      },
+      {
         kind: 'balance',
         text: 'Capacitor surges last twice as long (12s base, up from 6s) and now also slash every weapon’s reload by 40% while they burn — a real burst window on top of the damage bonus.',
       },

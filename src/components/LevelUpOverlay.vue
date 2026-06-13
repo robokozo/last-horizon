@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import SynergyGlossary from '@/components/SynergyGlossary.vue'
+import { UPGRADE_DEFINITIONS, findUpgradeDefinition } from '@/game/data/upgrades'
 import type { LevelUpOffer, UpgradeChoice, UpgradeRarity } from '@/game/types'
 
 const { offer, stacks = null } = defineProps<{
@@ -11,6 +12,49 @@ const { offer, stacks = null } = defineProps<{
 }>()
 
 const isGlossaryOpen = ref(false)
+
+/**
+ * For each offered card, the synergies it would open with a weapon already owned
+ * — i.e. the card is one parent of a not-yet-owned synergy whose other parent is
+ * in the player's arsenal. Drives the "combos with …" badge.
+ */
+const comboBadgeByChoiceId = computed<Record<string, { text: string; title: string }>>(() => {
+  const result: Record<string, { text: string; title: string }> = {}
+  const owned = stacks
+  if (owned === null) {
+    return result
+  }
+  for (const choice of offer.choices) {
+    const hints: Array<{ synergy: string; partner: string }> = []
+    for (const definition of UPGRADE_DEFINITIONS) {
+      if (definition.requires === undefined || (owned[definition.id] ?? 0) > 0) {
+        continue
+      }
+      if (definition.requires.some((requirement) => requirement.id === choice.id) === false) {
+        continue
+      }
+      const ownedPartner = definition.requires.find(
+        (requirement) => requirement.id !== choice.id && (owned[requirement.id] ?? 0) > 0,
+      )
+      if (ownedPartner === undefined) {
+        continue
+      }
+      hints.push({
+        synergy: definition.name,
+        partner: findUpgradeDefinition({ upgradeId: ownedPartner.id })?.name ?? ownedPartner.id,
+      })
+    }
+    if (hints.length === 0) {
+      continue
+    }
+    const partners = [...new Set(hints.map((hint) => hint.partner))]
+    result[choice.id] = {
+      text: `⚡ Combos with ${partners[0]}${partners.length > 1 ? ` +${partners.length - 1}` : ''}`,
+      title: `Synergies you can build:\n${hints.map((hint) => `• ${hint.partner} → ${hint.synergy}`).join('\n')}`,
+    }
+  }
+  return result
+})
 
 const emit = defineEmits<{
   choose: [payload: { upgradeId: string }]
@@ -83,6 +127,13 @@ const RARITY_LABEL_CLASSES: Record<UpgradeRarity, string> = {
             </span>
             <span class="text-lg font-bold text-slate-100">{{ choice.name }}</span>
             <span class="text-sm text-slate-400">{{ choice.description }}</span>
+            <span
+              v-if="comboBadgeByChoiceId[choice.id] !== undefined"
+              class="w-fit cursor-help rounded bg-amber-400/15 px-1.5 py-0.5 text-xs font-semibold text-amber-300"
+              :title="comboBadgeByChoiceId[choice.id].title"
+            >
+              {{ comboBadgeByChoiceId[choice.id].text }}
+            </span>
             <span
               v-if="choice.synergyOf !== null"
               class="text-xs font-semibold text-fuchsia-300/90"
