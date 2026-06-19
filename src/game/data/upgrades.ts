@@ -624,6 +624,34 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, momentumLevel: stats.momentumLevel + 1 }),
   },
   {
+    id: 'seeker',
+    name: 'Seeker Warheads',
+    description:
+      'Synergy: target-lock guidance from the stasis array steers every rocket onto the nearest invader — no more wasted shots on a cluster that scattered (stacks: tighter turns, harder to dodge)',
+    rarity: 'epic',
+    category: 'tactic',
+    maxStacks: BASE_MAX_STACKS,
+    requires: [
+      { id: 'rocket', stacks: 2 },
+      { id: 'lockdown', stacks: 2 },
+    ],
+    apply: (stats) => ({ ...stats, seekerLevel: stats.seekerLevel + 1 }),
+  },
+  {
+    id: 'airdrop',
+    name: 'Supply Drop',
+    description:
+      'Synergy: nanite crews load the strafing jet with care packages — it parachutes supply crates that pay a random boon on landing: city integrity, banked stardust, or a jolt of capacitor charge (stacks: more crates, bigger boons)',
+    rarity: 'epic',
+    category: 'tactic',
+    maxStacks: BASE_MAX_STACKS,
+    requires: [
+      { id: 'airstrike', stacks: 2 },
+      { id: 'nanite', stacks: 2 },
+    ],
+    apply: (stats) => ({ ...stats, airdropLevel: stats.airdropLevel + 1 }),
+  },
+  {
     id: 'mirv',
     name: 'MIRV Warheads',
     description:

@@ -27,6 +27,7 @@ export type MetaStat =
   | 'weaponSlotFlat'
   | 'weaponTierFlat'
   | 'cannonFlat'
+  | 'cardChoiceFlat'
   | 'luckPercent'
   | 'xpPercent'
   | 'stardustPercent'
@@ -397,11 +398,12 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     keystone: {
       name: 'Star Harvest',
       icon: '🌟',
-      description: 'Keystone: +50% stardust, +20% experience, +15% odds of rarer cards',
+      description:
+        'Keystone: +50% stardust, +20% experience, and +1 card to choose from on every level-up',
       effects: [
         { stat: 'stardustPercent', amount: 50 },
         { stat: 'xpPercent', amount: 20 },
-        { stat: 'luckPercent', amount: 15 },
+        { stat: 'cardChoiceFlat', amount: 1 },
       ],
     },
   },
@@ -795,6 +797,7 @@ export function buildStartingStats({
     critMultiplier: BASE_RUN_STATS.critMultiplier + valueOf('critMultiplierFlat'),
     aegisIntervalMs: valueOf('aegisUnlockFlat') > 0 ? AEGIS_BLOCK_INTERVAL_MS : null,
     weaponSlots: BASE_RUN_STATS.weaponSlots + valueOf('weaponSlotFlat'),
+    cardChoices: BASE_RUN_STATS.cardChoices + valueOf('cardChoiceFlat'),
     rerollsPerRun: BASE_RUN_STATS.rerollsPerRun + valueOf('rerollFlat'),
     banishesPerRun: BASE_RUN_STATS.banishesPerRun + valueOf('banishFlat'),
     luck: BASE_RUN_STATS.luck * (1 + valueOf('luckPercent') / 100),

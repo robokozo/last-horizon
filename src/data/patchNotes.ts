@@ -22,6 +22,29 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-19',
+    title: 'Care Package',
+    blurb: 'Two new synergies, and a clearer freeze.',
+    notes: [
+      {
+        kind: 'new',
+        text: 'Supply Drop (Strafing Run × Nanite Swarm): the jet parachutes care packages that drift down and pay a random boon when they land — city integrity, banked stardust, or a jolt of capacitor charge. Higher ranks drop more crates with bigger payouts.',
+      },
+      {
+        kind: 'new',
+        text: 'Seeker Warheads (Rocket Pod × Lock Down): target-lock guidance steers each rocket onto the cluster it was fired at as the invaders drift — no more rockets sailing through empty sky where the crowd used to be. Higher ranks turn tighter.',
+      },
+      {
+        kind: 'new',
+        text: 'Lock Down now leaves a lingering frost field over the frozen zone, fading out as the hold expires — you can see exactly where it is safe.',
+      },
+      {
+        kind: 'balance',
+        text: 'Star Harvest (paragon keystone) now grants +1 card to choose from on every level-up instead of +15% rarer-card odds — a guaranteed extra option each pick, rather than a roll of the dice.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-19',
     title: 'By the Numbers',
     blurb: 'Every upgrade shows exactly what it changes.',
     notes: [

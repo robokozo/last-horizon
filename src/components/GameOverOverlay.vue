@@ -66,12 +66,36 @@ const cardLines = computed(() => {
   return { weapons, tactics }
 })
 
-const nodeNames = computed(() =>
-  unlockedNodeIds
-    .filter((id) => id !== ROOT_NODE_ID)
-    .map((id) => SKILL_NODES_BY_ID.get(id)?.name ?? id)
-    .sort(),
-)
+/**
+ * Compact paragon readout: the impactful nodes (keystones + notables) are named,
+ * while the many small minors collapse to a per-branch tally — far less text than
+ * listing every node, and it still says where the build invested.
+ */
+const paragonSummary = computed(() => {
+  const keyNodes: Array<string> = []
+  const minorsByBranch: Record<string, number> = {}
+  let count = 0
+  for (const id of unlockedNodeIds) {
+    if (id === ROOT_NODE_ID) {
+      continue
+    }
+    const node = SKILL_NODES_BY_ID.get(id)
+    if (node === undefined) {
+      continue
+    }
+    count += 1
+    if (node.kind === 'minor') {
+      minorsByBranch[node.branch] = (minorsByBranch[node.branch] ?? 0) + 1
+    } else {
+      keyNodes.push(node.name)
+    }
+  }
+  keyNodes.sort()
+  const minors = Object.entries(minorsByBranch)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([branch, n]) => `${branch} ×${n}`)
+  return { count, keyNodes, minors }
+})
 
 const reportText = computed(() => {
   const lines: Array<string> = []
@@ -103,8 +127,14 @@ const reportText = computed(() => {
   )
   lines.push('')
 
-  lines.push(`Paragon nodes (${nodeNames.value.length}):`)
-  lines.push(nodeNames.value.length > 0 ? `  ${nodeNames.value.join(', ')}` : '  (none)')
+  const paragon = paragonSummary.value
+  lines.push(`Paragon: ${paragon.count} nodes`)
+  if (paragon.keyNodes.length > 0) {
+    lines.push(`  Key: ${paragon.keyNodes.join(', ')}`)
+  }
+  if (paragon.minors.length > 0) {
+    lines.push(`  Minors: ${paragon.minors.join(', ')}`)
+  }
 
   return lines.join('\n')
 })

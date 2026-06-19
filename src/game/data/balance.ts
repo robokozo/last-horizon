@@ -105,6 +105,7 @@ export const BASE_RUN_STATS: RunStats = {
   weaponSlots: 3,
   weaponTierBonus: 0,
   weaponCooldownFactor: 1,
+  cardChoices: 3,
   rerollsPerRun: 1,
   banishesPerRun: 0,
   hasCapacitor: false,
@@ -160,6 +161,8 @@ export const BASE_RUN_STATS: RunStats = {
   cryoLevel: 0,
   salvageLevel: 0,
   momentumLevel: 0,
+  airdropLevel: 0,
+  seekerLevel: 0,
 }
 
 export const SYNERGIES = {
@@ -306,6 +309,11 @@ export const SYNERGIES = {
   momentum: {
     cooldownRefundMsBase: 150,
     cooldownRefundMsPerLevel: 75,
+  },
+  /** rocket pod × lock down: target-lock guidance steers rockets onto the nearest invader */
+  seeker: {
+    turnRateDegBase: 200,
+    turnRateDegPerLevel: 90,
   },
   /** rocket pod × mine layer: rocket blasts scatter armed mines */
   mirv: {
@@ -565,6 +573,22 @@ export const SANDBOX_STREAM = {
   enemyRadius: 12,
   /** fallback HP when the caller leaves dummyHp null */
   defaultHp: 100,
+} as const
+
+/** strafing run × nanite swarm: the jet parachutes supply crates that pay a boon on landing */
+export const AIRDROP = {
+  dropIntervalMsBase: 1_600,
+  dropIntervalStepMs: 220,
+  minDropIntervalMs: 800,
+  fallSpeedPxPerSec: 70,
+  /** integrity restored by a repair crate (+ per level) */
+  repairIntegrity: 14,
+  repairPerLevel: 4,
+  /** stardust banked by a supply crate (+ per level) */
+  stardust: 8,
+  stardustPerLevel: 3,
+  /** fraction of the capacitor a reactor crate fills */
+  capacitorCharge: 0.5,
 } as const
 
 export const NOVA_START_INTERVAL_MS = 5_000

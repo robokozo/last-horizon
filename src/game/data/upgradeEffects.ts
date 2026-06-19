@@ -1,4 +1,5 @@
 import {
+  AIRDROP,
   AIRSTRIKE,
   BASE_RUN_STATS,
   BFG,
@@ -391,6 +392,33 @@ const EFFECT_BUILDERS: Record<string, EffectBuilder> = {
           SYNERGIES.overwatch.frozenDamageBonusPerLevel * Math.max(0, level - 1)) *
         100,
       unit: 'percent',
+    },
+  ],
+  seeker: ({ level }) => [
+    {
+      label: 'Turn rate',
+      value: SYNERGIES.seeker.turnRateDegBase + SYNERGIES.seeker.turnRateDegPerLevel * (level - 1),
+      unit: 'deg',
+    },
+  ],
+  airdrop: ({ level }) => [
+    {
+      label: 'Crate every',
+      value: Math.max(
+        AIRDROP.minDropIntervalMs,
+        AIRDROP.dropIntervalMsBase - AIRDROP.dropIntervalStepMs * (level - 1),
+      ),
+      unit: 'sec',
+    },
+    {
+      label: 'Repair',
+      value: AIRDROP.repairIntegrity + AIRDROP.repairPerLevel * (level - 1),
+      unit: 'int',
+    },
+    {
+      label: 'Stardust',
+      value: AIRDROP.stardust + AIRDROP.stardustPerLevel * (level - 1),
+      unit: 'int',
     },
   ],
 }

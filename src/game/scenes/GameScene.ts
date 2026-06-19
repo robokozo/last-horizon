@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 
 import {
+  AIRDROP,
   AIRSTRIKE,
   ARENA,
   BASE_RUN_STATS,
@@ -235,6 +236,8 @@ interface RocketUnit {
   damage: number
   blastRadius: number
   trailAccumulatorMs: number
+  /** seeker synergy: the cluster target this rocket tracks as it moves */
+  target: EnemyUnit | null
   isDead: boolean
 }
 
@@ -259,8 +262,16 @@ interface PlaneUnit {
   seedAccumulatorMs: number
   /** close air support synergy */
   casAccumulatorMs: number
+  /** supply drop synergy */
+  airdropAccumulatorMs: number
   /** sorties strafe out and back — one pass in each direction */
   passesRemaining: number
+  isDead: boolean
+}
+
+interface ParachuteUnit {
+  image: Phaser.GameObjects.Image
+  velocityX: number
   isDead: boolean
 }
 
@@ -297,7 +308,6 @@ const BULLET_CULL_MARGIN = 60
 const HUD_EMIT_INTERVAL_MS = 100
 const REGEN_TICK_MS = 1_000
 const MAX_CONCURRENT_GEMS = 60
-const LEVEL_UP_CHOICE_COUNT = 3
 const AEGIS_MIN_ALPHA = 0.15
 const AEGIS_MAX_ALPHA = 0.9
 const MAX_NANITE_DRONES = 3
@@ -464,6 +474,7 @@ export class GameScene extends Phaser.Scene {
   }> = []
 
   private planes: Array<PlaneUnit> = []
+  private parachutes: Array<ParachuteUnit> = []
   private bombs: Array<BombUnit> = []
   private sweeps: Array<SweepBeam> = []
   private sweepGraphics!: Phaser.GameObjects.Graphics
@@ -703,6 +714,10 @@ export class GameScene extends Phaser.Scene {
       plane.image.destroy()
     }
     this.planes = []
+    for (const chute of this.parachutes) {
+      chute.image.destroy()
+    }
+    this.parachutes = []
     for (const bomb of this.bombs) {
       bomb.image.destroy()
     }
@@ -992,6 +1007,7 @@ export class GameScene extends Phaser.Scene {
     this.moveStasisMissiles({ delta })
     this.moveRockets({ delta })
     this.updateAirstrike({ delta })
+    this.updateParachutes({ delta })
     this.updateBfg({ delta })
     this.updateLanceSweeps({ delta })
     this.updateBurning({ delta })
@@ -2464,6 +2480,49 @@ export class GameScene extends Phaser.Scene {
       if (rocket.isDead === true) {
         continue
       }
+      // seeker warheads synergy: track the cluster the rocket was aimed at as it
+      // drifts (the usual cause of a miss), only re-acquiring if that target dies
+      if (this.stats.seekerLevel > 0) {
+        if (rocket.target === null || rocket.target.isDead === true) {
+          let nearest: EnemyUnit | null = null
+          let nearestSq = Number.POSITIVE_INFINITY
+          for (const enemy of this.enemies) {
+            if (enemy.isDead === true) {
+              continue
+            }
+            const distanceSq =
+              (enemy.image.x - rocket.image.x) ** 2 + (enemy.image.y - rocket.image.y) ** 2
+            if (distanceSq < nearestSq) {
+              nearestSq = distanceSq
+              nearest = enemy
+            }
+          }
+          rocket.target = nearest
+        }
+        if (rocket.target !== null) {
+          const nearest = rocket.target
+          const speed = Math.hypot(rocket.velocityX, rocket.velocityY)
+          const currentAngle = Math.atan2(rocket.velocityY, rocket.velocityX)
+          const desiredAngle = Math.atan2(
+            nearest.image.y - rocket.image.y,
+            nearest.image.x - rocket.image.x,
+          )
+          const maxTurn =
+            Phaser.Math.DegToRad(
+              SYNERGIES.seeker.turnRateDegBase +
+                SYNERGIES.seeker.turnRateDegPerLevel * (this.stats.seekerLevel - 1),
+            ) * seconds
+          const turn = Phaser.Math.Clamp(
+            Phaser.Math.Angle.Wrap(desiredAngle - currentAngle),
+            -maxTurn,
+            maxTurn,
+          )
+          const newAngle = currentAngle + turn
+          rocket.velocityX = Math.cos(newAngle) * speed
+          rocket.velocityY = Math.sin(newAngle) * speed
+          rocket.image.setRotation(newAngle)
+        }
+      }
       rocket.image.x += rocket.velocityX * seconds
       rocket.image.y += rocket.velocityY * seconds
       rocket.trailAccumulatorMs += delta
@@ -2587,6 +2646,7 @@ export class GameScene extends Phaser.Scene {
         weaponDamageMultiplier({ weaponId: 'rocket', level: this.stats.rocketLevel }),
       blastRadius: this.rocketBlastRadius(),
       trailAccumulatorMs: 0,
+      target,
       isDead: false,
     })
   }
@@ -3049,31 +3109,48 @@ export class GameScene extends Phaser.Scene {
     const pulseRadius = LOCKDOWN.pulseRadius + LOCKDOWN.pulseRadiusPerLevel * (level - 1)
     const freezeMs = LOCKDOWN.baseFreezeMs + LOCKDOWN.freezeMsPerLevel * (level - 1)
 
-    const flash = this.add.circle(pulseX, pulseY, 10, 0xbae6fd, 0.6).setDepth(DEPTHS.effects)
-    const ring = this.add
-      .circle(pulseX, pulseY, 10)
-      .setStrokeStyle(3 + 0.8 * (level - 1), 0x7dd3fc, 0.95)
-      .setDepth(DEPTHS.effects)
-    this.tweens.add({
-      targets: flash,
-      radius: pulseRadius * 0.7,
-      alpha: 0,
-      duration: 320,
-      ease: 'Cubic.easeOut',
-      onComplete: () => {
-        flash.destroy()
-      },
-    })
-    this.tweens.add({
-      targets: ring,
-      radius: pulseRadius,
-      alpha: 0,
-      duration: 420,
-      ease: 'Cubic.easeOut',
-      onComplete: () => {
-        ring.destroy()
-      },
-    })
+    if (this.suppressVisuals === false) {
+      const flash = this.add.circle(pulseX, pulseY, 10, 0xbae6fd, 0.6).setDepth(DEPTHS.effects)
+      const ring = this.add
+        .circle(pulseX, pulseY, 10)
+        .setStrokeStyle(3 + 0.8 * (level - 1), 0x7dd3fc, 0.95)
+        .setDepth(DEPTHS.effects)
+      this.tweens.add({
+        targets: flash,
+        radius: pulseRadius * 0.7,
+        alpha: 0,
+        duration: 320,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          flash.destroy()
+        },
+      })
+      this.tweens.add({
+        targets: ring,
+        radius: pulseRadius,
+        alpha: 0,
+        duration: 420,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          ring.destroy()
+        },
+      })
+      // a lingering frost field marks the locked-down zone for the whole freeze,
+      // fading out as the hold expires
+      const frost = this.add
+        .circle(pulseX, pulseY, pulseRadius, 0x7dd3fc, 0.18)
+        .setStrokeStyle(2, 0xbae6fd, 0.45)
+        .setDepth(DEPTHS.clouds)
+      this.tweens.add({
+        targets: frost,
+        alpha: 0,
+        duration: freezeMs,
+        ease: 'Sine.easeIn',
+        onComplete: () => {
+          frost.destroy()
+        },
+      })
+    }
 
     for (const enemy of this.enemies) {
       if (enemy.isDead === true) {
@@ -3305,6 +3382,22 @@ export class GameScene extends Phaser.Scene {
             }
           }
         }
+        // supply drop synergy: the jet parachutes a care package
+        if (this.stats.airdropLevel > 0) {
+          plane.airdropAccumulatorMs += delta
+          const dropInterval = Math.max(
+            AIRDROP.minDropIntervalMs,
+            AIRDROP.dropIntervalMsBase - AIRDROP.dropIntervalStepMs * (this.stats.airdropLevel - 1),
+          )
+          if (plane.airdropAccumulatorMs >= dropInterval) {
+            plane.airdropAccumulatorMs = 0
+            this.dropParachute({
+              x: plane.image.x,
+              y: plane.image.y + 8,
+              velocityX: plane.velocityX * 0.12,
+            })
+          }
+        }
       }
       const isOffscreen = plane.image.x < -80 || plane.image.x > this.arenaWidth + 80
       if (isOffscreen === true) {
@@ -3353,6 +3446,100 @@ export class GameScene extends Phaser.Scene {
     this.bombs = this.bombs.filter((bomb) => bomb.isDead === false)
   }
 
+  private dropParachute({ x, y, velocityX }: { x: number; y: number; velocityX: number }): void {
+    const image = this.add.image(x, y, 'parachute').setDepth(DEPTHS.bullets)
+    this.parachutes.push({ image, velocityX, isDead: false })
+  }
+
+  /** supply crates drift down and pay out a random boon when they touch down */
+  private updateParachutes({ delta }: { delta: number }): void {
+    if (this.parachutes.length === 0) {
+      return
+    }
+    const seconds = delta / 1_000
+    for (const chute of this.parachutes) {
+      if (chute.isDead === true) {
+        continue
+      }
+      chute.image.x += chute.velocityX * seconds
+      // a gentle sway as it descends
+      chute.image.x += Math.sin(this.elapsedMs / 380 + chute.image.y / 40) * 0.4
+      chute.image.y += AIRDROP.fallSpeedPxPerSec * seconds
+      if (chute.image.y >= this.groundY - 12) {
+        chute.isDead = true
+        this.collectAirdrop({ x: chute.image.x, y: this.groundY - 12 })
+        chute.image.destroy()
+      }
+    }
+    this.parachutes = this.parachutes.filter((chute) => chute.isDead === false)
+  }
+
+  /** a landed crate pays one of three boons, weighted toward repairs and dust */
+  private collectAirdrop({ x, y }: { x: number; y: number }): void {
+    const level = this.stats.airdropLevel
+    const roll = Math.random()
+    let label: string
+    let color: number
+    if (roll < 0.55) {
+      const heal = AIRDROP.repairIntegrity + AIRDROP.repairPerLevel * (level - 1)
+      this.hp = Math.min(this.stats.maxHp, this.hp + heal)
+      label = `+${heal} ⛨`
+      color = 0x4ade80
+    } else if (roll < 0.85) {
+      const dust = AIRDROP.stardust + AIRDROP.stardustPerLevel * (level - 1)
+      this.bonusStardust += dust
+      label = `✦ +${dust}`
+      color = 0xfbbf24
+    } else if (this.stats.hasCapacitor === true) {
+      this.capacitorCharge = Math.min(1, this.capacitorCharge + AIRDROP.capacitorCharge)
+      label = '⚡ charge'
+      color = 0x67e8f9
+    } else {
+      // no reactor to feed — a bigger repair instead, so the crate is never wasted
+      const heal = (AIRDROP.repairIntegrity + AIRDROP.repairPerLevel * (level - 1)) * 2
+      this.hp = Math.min(this.stats.maxHp, this.hp + heal)
+      label = `+${heal} ⛨`
+      color = 0x4ade80
+    }
+    this.emitHudSnapshot()
+
+    if (this.suppressVisuals === true) {
+      return
+    }
+    const puff = this.add.circle(x, y, 8, color, 0.6).setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: puff,
+      radius: 30,
+      alpha: 0,
+      duration: 420,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        puff.destroy()
+      },
+    })
+    const text = this.add
+      .text(x, y - 14, label, {
+        fontFamily: 'Segoe UI, system-ui, sans-serif',
+        fontSize: '15px',
+        fontStyle: 'bold',
+        color: '#f1f5f9',
+        stroke: '#0f172a',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: text,
+      y: y - 56,
+      alpha: 0,
+      duration: 1_100,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        text.destroy()
+      },
+    })
+  }
+
   private spawnStrafingPlane(): void {
     const level = Math.max(1, this.stats.airstrikeLevel)
     const isLeftToRight = Math.random() < 0.5
@@ -3376,6 +3563,7 @@ export class GameScene extends Phaser.Scene {
       trailAccumulatorMs: 0,
       seedAccumulatorMs: 0,
       casAccumulatorMs: 0,
+      airdropAccumulatorMs: 0,
       passesRemaining: 2,
       isDead: false,
     })
@@ -5128,7 +5316,7 @@ export class GameScene extends Phaser.Scene {
     const choices = rollUpgradeChoices({
       stacks: this.upgradeStacks,
       roll: () => Math.random(),
-      count: LEVEL_UP_CHOICE_COUNT,
+      count: this.stats.cardChoices,
       wave: this.wave,
       luck: this.stats.luck,
       weaponSlots: this.stats.weaponSlots,
@@ -6016,6 +6204,22 @@ export class GameScene extends Phaser.Scene {
     graphics.fillStyle(0xfb923c)
     graphics.fillCircle(4, 9, 2)
     graphics.generateTexture('bomb', 8, 12)
+    graphics.clear()
+
+    // supply parachute: a green canopy on strings with a crate slung beneath
+    graphics.fillStyle(0x4ade80)
+    graphics.fillEllipse(13, 9, 26, 18)
+    graphics.fillStyle(0x22c55e)
+    graphics.fillRect(0, 8, 26, 2)
+    graphics.lineStyle(1, 0xcbd5e1, 0.85)
+    graphics.lineBetween(2, 10, 9, 22)
+    graphics.lineBetween(24, 10, 17, 22)
+    graphics.lineBetween(13, 10, 13, 22)
+    graphics.fillStyle(0xa16207)
+    graphics.fillRect(8, 22, 10, 7)
+    graphics.fillStyle(0xfacc15)
+    graphics.fillRect(8, 24, 10, 2)
+    graphics.generateTexture('parachute', 26, 30)
     graphics.clear()
 
     // nanite repair drone: pale green hover-bot with side rotors

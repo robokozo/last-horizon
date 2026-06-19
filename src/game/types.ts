@@ -21,6 +21,8 @@ export interface RunStats {
   weaponTierBonus: number
   /** multiplier on every auxiliary weapon cooldown — fire-rate bonuses are global haste */
   weaponCooldownFactor: number
+  /** how many cards each level-up offers (base 3, raised by paragon nodes) */
+  cardChoices: number
   /** card rerolls available per run (base 1, raised by paragon reroll nodes) */
   rerollsPerRun: number
   /** card banishes available per run — base 0, only paragon nodes grant them */
@@ -86,6 +88,8 @@ export interface RunStats {
   cryoLevel: number
   salvageLevel: number
   momentumLevel: number
+  airdropLevel: number
+  seekerLevel: number
 }
 
 export type UpgradeRarity = 'common' | 'rare' | 'epic' | 'legendary'
