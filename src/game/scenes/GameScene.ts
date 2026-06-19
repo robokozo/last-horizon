@@ -2235,27 +2235,66 @@ export class GameScene extends Phaser.Scene {
     const burstX = shell.image.x
     const burstY = shell.image.y
     shell.image.destroy()
-    soundEngine.play({ name: 'flak' })
-    this.spawnFlakSmoke({ x: burstX, y: burstY })
 
-    // the shell itself wounds whatever tripped the fuse; fragments are the bonus
-    if (triggerEnemy !== null) {
-      this.damageEnemy({ enemy: triggerEnemy, amount: shell.damage, source: 'flak' })
-    }
-
-    const fragmentCount = FLAK.baseFragments + FLAK.fragmentsPerLevel * (this.stats.flakLevel - 1)
-    const fragmentDamage =
-      (shell.damage *
-        (FLAK.baseDamagePercent + FLAK.damagePercentPerLevel * (this.stats.flakLevel - 1))) /
-      100
-    const baseFragmentSpeed = this.stats.projectileSpeed * FLAK.fragmentSpeedFactor
-    // one fragment is aimed straight at the invader that tripped the fuse (with
-    // barely any scatter); the rest spray out in a roughly even but messy ring.
     // a timed-fuse burst has no trigger — it sprays around the flight direction
     const aimedAngle =
       triggerEnemy !== null
         ? Math.atan2(triggerEnemy.image.y - burstY, triggerEnemy.image.x - burstX)
         : Math.atan2(shell.velocityY, shell.velocityX)
+
+    this.burstFlak({
+      x: burstX,
+      y: burstY,
+      shellDamage: shell.damage,
+      directHitEnemy: triggerEnemy,
+      aimedAngle,
+      generation: 0,
+      cascadeVisited: triggerEnemy !== null ? new Set([triggerEnemy]) : new Set(),
+    })
+  }
+
+  /**
+   * one flak detonation: the shell wounds whatever tripped the fuse, then sprays
+   * a ring of fragments. With the Chain Reaction synergy the burst also touches
+   * off fresh bursts on nearby invaders (one generation deeper, weaker), rippling
+   * through a swarm until it runs out of branches, generations, or fresh targets.
+   */
+  private burstFlak({
+    x,
+    y,
+    shellDamage,
+    directHitEnemy,
+    aimedAngle,
+    generation,
+    cascadeVisited,
+  }: {
+    x: number
+    y: number
+    shellDamage: number
+    directHitEnemy: EnemyUnit | null
+    aimedAngle: number
+    generation: number
+    cascadeVisited: Set<EnemyUnit>
+  }): void {
+    // only the original detonation cracks — a cascade of claps would be a wall of noise
+    if (generation === 0) {
+      soundEngine.play({ name: 'flak' })
+    }
+    this.spawnFlakSmoke({ x, y })
+
+    // the shell itself wounds whatever tripped the fuse; fragments are the bonus
+    if (directHitEnemy !== null) {
+      this.damageEnemy({ enemy: directHitEnemy, amount: shellDamage, source: 'flak' })
+    }
+
+    const fragmentCount = FLAK.baseFragments + FLAK.fragmentsPerLevel * (this.stats.flakLevel - 1)
+    const fragmentDamage =
+      (shellDamage *
+        (FLAK.baseDamagePercent + FLAK.damagePercentPerLevel * (this.stats.flakLevel - 1))) /
+      100
+    const baseFragmentSpeed = this.stats.projectileSpeed * FLAK.fragmentSpeedFactor
+    // one fragment is aimed straight at the invader that tripped the fuse (with
+    // barely any scatter); the rest spray out in a roughly even but messy ring.
     const ringSpacing = (Math.PI * 2) / fragmentCount
 
     for (let index = 0; index < fragmentCount; index += 1) {
@@ -2264,7 +2303,7 @@ export class GameScene extends Phaser.Scene {
       const angle = aimedAngle + index * ringSpacing + (Math.random() * 2 - 1) * angleJitter
       const fragmentSpeed = baseFragmentSpeed * (0.75 + Math.random() * 0.5)
       const travelJitter = isAimedFragment === true ? 1 : 0.65 + Math.random() * 0.7
-      const image = this.add.image(burstX, burstY, 'flak-frag').setDepth(DEPTHS.bullets)
+      const image = this.add.image(x, y, 'flak-frag').setDepth(DEPTHS.bullets)
       this.bullets.push({
         image,
         source: 'flak',
@@ -2277,6 +2316,45 @@ export class GameScene extends Phaser.Scene {
         maxTravelPx: FLAK.fragmentTravelPx * travelJitter,
         hitEnemies: new Set(),
         isDead: false,
+      })
+    }
+
+    // Chain Reaction synergy: touch off fresh bursts on nearby unburst invaders
+    if (this.stats.flakCascadeLevel === 0 || generation >= SYNERGIES.flakcascade.maxGenerations) {
+      return
+    }
+    const branches =
+      SYNERGIES.flakcascade.branchesBase +
+      SYNERGIES.flakcascade.branchesPerLevel * (this.stats.flakCascadeLevel - 1)
+    const radiusSq = SYNERGIES.flakcascade.radiusPx ** 2
+    const nearby = this.enemies
+      .filter(
+        (enemy) =>
+          enemy.isDead === false &&
+          cascadeVisited.has(enemy) === false &&
+          (enemy.image.x - x) ** 2 + (enemy.image.y - y) ** 2 <= radiusSq,
+      )
+      .sort(
+        (a, b) =>
+          (a.image.x - x) ** 2 +
+          (a.image.y - y) ** 2 -
+          ((b.image.x - x) ** 2 + (b.image.y - y) ** 2),
+      )
+      .slice(0, branches)
+
+    for (const enemy of nearby) {
+      // claim the target before recursing so siblings don't double-detonate it
+      cascadeVisited.add(enemy)
+    }
+    for (const enemy of nearby) {
+      this.burstFlak({
+        x: enemy.image.x,
+        y: enemy.image.y,
+        shellDamage: shellDamage * SYNERGIES.flakcascade.damageFalloff,
+        directHitEnemy: enemy,
+        aimedAngle: Math.atan2(enemy.image.y - y, enemy.image.x - x),
+        generation: generation + 1,
+        cascadeVisited,
       })
     }
   }

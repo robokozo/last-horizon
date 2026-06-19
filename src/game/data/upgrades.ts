@@ -565,6 +565,20 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, salvageLevel: stats.salvageLevel + 1 }),
   },
   {
+    id: 'flakcascade',
+    name: 'Chain Reaction',
+    description:
+      'Synergy: flak bursts are unstable — each one touches off fresh flak bursts on nearby invaders, which set off more, rippling through a swarm (stacks: more branches per burst)',
+    rarity: 'epic',
+    category: 'tactic',
+    maxStacks: BASE_MAX_STACKS,
+    requires: [
+      { id: 'flak', stacks: 2 },
+      { id: 'devourer', stacks: 2 },
+    ],
+    apply: (stats) => ({ ...stats, flakCascadeLevel: stats.flakCascadeLevel + 1 }),
+  },
+  {
     id: 'momentum',
     name: 'Momentum',
     description:

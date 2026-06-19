@@ -408,6 +408,15 @@ const EFFECT_BUILDERS: Record<string, EffectBuilder> = {
       unit: 'deg',
     },
   ],
+  flakcascade: ({ level }) => [
+    {
+      label: 'Branches per burst',
+      value:
+        SYNERGIES.flakcascade.branchesBase + SYNERGIES.flakcascade.branchesPerLevel * (level - 1),
+      unit: 'int',
+    },
+    { label: 'Chain depth', value: SYNERGIES.flakcascade.maxGenerations, unit: 'int' },
+  ],
   airdrop: ({ level }) => [
     {
       label: 'Crate every',

@@ -37,6 +37,10 @@ export const PATCH_NOTES: Array<PatchEntry> = [
         kind: 'balance',
         text: 'Boss motherships now hover lower and heave vertically — diving in toward the city and rising back out as they drift side to side, instead of sliding flatly across the top of the screen.',
       },
+      {
+        kind: 'new',
+        text: 'New synergy — Chain Reaction (Flak Gun ★2 + Devourer Swarm ★2): flak bursts are now unstable. Every detonation touches off fresh flak bursts on nearby invaders, which set off still more — a chain reaction that ripples through a packed swarm. Ranking it up adds more branches per burst.',
+      },
     ],
   },
   {

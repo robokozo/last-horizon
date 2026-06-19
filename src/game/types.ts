@@ -91,6 +91,7 @@ export interface RunStats {
   airdropLevel: number
   seekerLevel: number
   orbitalSweepLevel: number
+  flakCascadeLevel: number
 }
 
 export type UpgradeRarity = 'common' | 'rare' | 'epic' | 'legendary'

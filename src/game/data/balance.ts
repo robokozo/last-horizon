@@ -193,6 +193,7 @@ export const BASE_RUN_STATS: RunStats = {
   airdropLevel: 0,
   seekerLevel: 0,
   orbitalSweepLevel: 0,
+  flakCascadeLevel: 0,
 }
 
 export const SYNERGIES = {
@@ -334,6 +335,23 @@ export const SYNERGIES = {
     fragmentsPerLevel: 1,
     damageMultBase: 0.35,
     damageMultPerLevel: 0.1,
+  },
+  /**
+   * flak × devourer: a flak burst chain-reacts — it touches off fresh flak bursts
+   * on nearby invaders, which can touch off more, rippling through a swarm. Each
+   * hop is one generation deeper and weaker (damageFalloff), capped by maxGenerations
+   * and a per-burst visited set so it always terminates.
+   */
+  flakcascade: {
+    /** how far a burst reaches to find the next invaders to detonate on */
+    radiusPx: 110,
+    /** invaders each burst chains to */
+    branchesBase: 2,
+    branchesPerLevel: 1,
+    /** how many hops deep the chain can run from the original shell */
+    maxGenerations: 3,
+    /** each generation's flak damage = parent × this */
+    damageFalloff: 0.55,
   },
   /** salvo × rocket pod: main-gun kills shave time off the rocket cooldown */
   momentum: {
