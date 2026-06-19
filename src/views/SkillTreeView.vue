@@ -301,63 +301,59 @@ function nodeOpacity({ node }: { node: SkillNode }): number {
 <template>
   <main class="flex h-screen flex-col">
     <header
-      class="z-10 flex items-center justify-between border-b border-slate-800 bg-slate-950/90 px-6 py-3"
+      class="z-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-800 bg-slate-950/90 px-3 py-2 sm:px-6 sm:py-3"
     >
-      <div class="flex items-center gap-6">
+      <div class="flex items-center gap-3 sm:gap-6">
         <RouterLink
           to="/"
           class="text-sm font-semibold text-slate-400 transition hover:text-slate-200"
         >
           ← Home
         </RouterLink>
-        <h1 class="text-xl font-black tracking-wider text-fuchsia-300">PARAGON TREE</h1>
+        <h1 class="text-base font-black tracking-wider text-fuchsia-300 sm:text-xl">PARAGON</h1>
       </div>
-      <div class="flex items-center gap-4">
-        <RouterLink
-          to="/game"
-          class="cursor-pointer rounded-lg bg-emerald-500 px-4 py-1.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
+      <div class="flex flex-wrap items-center justify-end gap-1.5 sm:gap-3">
+        <span
+          class="flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-xs font-bold text-amber-300 sm:px-4 sm:py-1.5 sm:text-sm"
         >
-          ▶ Launch Run
-        </RouterLink>
+          ✦ {{ Math.floor(metaStore.stardust) }}
+        </span>
+        <span
+          class="flex items-center gap-1 rounded-full border border-fuchsia-400/30 bg-fuchsia-400/10 px-2.5 py-1 text-xs font-bold text-fuchsia-300 sm:px-4 sm:py-1.5 sm:text-sm"
+          :title="`${metaStore.paragonLevel} of ${SKILL_NODES.length - 1} nodes bought`"
+        >
+          ★{{ metaStore.paragonLevel }}
+        </span>
         <span
           v-if="metaStore.prestigeLevel > 0"
-          class="flex items-center gap-2 rounded-full border border-sky-400/30 bg-sky-400/10 px-4 py-1.5 text-sm font-bold text-sky-300"
+          class="flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-400/10 px-2.5 py-1 text-xs font-bold text-sky-300 sm:px-4 sm:py-1.5 sm:text-sm"
           title="Each prestige pulls the view back and staffs another gun emplacement"
         >
-          ⟴ Prestige {{ metaStore.prestigeLevel }}
+          ⟴ {{ metaStore.prestigeLevel }}
         </span>
         <button
           v-if="metaStore.isParagonComplete === true"
           type="button"
-          class="cursor-pointer rounded-lg border border-sky-400/50 bg-sky-500/15 px-3 py-1.5 text-sm font-bold text-sky-300 transition hover:bg-sky-500/25"
+          class="cursor-pointer rounded-lg border border-sky-400/50 bg-sky-500/15 px-2.5 py-1 text-xs font-bold text-sky-300 transition hover:bg-sky-500/25 sm:px-3 sm:py-1.5 sm:text-sm"
           @click="requestPrestige()"
           @mouseleave="isConfirmingPrestige = false"
         >
-          {{
-            isConfirmingPrestige === true
-              ? 'Confirm: reset everything, zoom out?'
-              : '⟴ Prestige — pull back the view'
-          }}
+          {{ isConfirmingPrestige === true ? 'Confirm reset?' : '⟴ Prestige' }}
         </button>
-        <span
-          class="flex items-center gap-2 rounded-full border border-fuchsia-400/30 bg-fuchsia-400/10 px-4 py-1.5 text-sm font-bold text-fuchsia-300"
-          :title="`${metaStore.paragonLevel} of ${SKILL_NODES.length - 1} nodes bought`"
-        >
-          Paragon {{ metaStore.paragonLevel }}
-        </span>
-        <span
-          class="flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-1.5 font-bold text-amber-300"
-        >
-          ✦ {{ Math.floor(metaStore.stardust) }}
-        </span>
         <button
           type="button"
-          class="cursor-pointer rounded-lg border border-red-500/40 px-3 py-1.5 text-sm font-semibold text-red-400 transition hover:bg-red-500/10"
+          class="cursor-pointer rounded-lg border border-red-500/40 px-2.5 py-1 text-xs font-semibold text-red-400 transition hover:bg-red-500/10 sm:px-3 sm:py-1.5 sm:text-sm"
           @click="requestReset()"
           @mouseleave="isConfirmingReset = false"
         >
-          {{ isConfirmingReset === true ? 'Confirm full refund?' : 'Reset Tree' }}
+          {{ isConfirmingReset === true ? 'Confirm refund?' : 'Reset' }}
         </button>
+        <RouterLink
+          to="/game"
+          class="cursor-pointer rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-bold text-slate-950 transition hover:bg-emerald-400 sm:px-4 sm:py-1.5 sm:text-sm"
+        >
+          ▶ Launch
+        </RouterLink>
       </div>
     </header>
 

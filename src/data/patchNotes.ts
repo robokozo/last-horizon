@@ -22,6 +22,33 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-19',
+    title: 'Static Field',
+    blurb: 'Nova Pulse becomes a tank-melting static field.',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'Nova Pulse is reworked into a static-field discharge: each pulse strips 25% of the CURRENT health of every invader around the city — it shreds tanks, elites, and bosses but can’t finish off chaff. Ranking it up widens the field and lowers the floor it can grind targets down to (50% at ★1 → just 5% at ★5). The old knockback is gone.',
+      },
+      {
+        kind: 'balance',
+        text: 'Nova’s synergies (Stasis Wave, Capacitor Dump, Concussive Pulse) are removed for now — they were built around the old knockback/flat-damage pulse and will be re-planned around the new static field.',
+      },
+      {
+        kind: 'fix',
+        text: 'The Paragon screen’s top bar no longer crams off the edge on mobile — the controls wrap and shrink to fit small screens.',
+      },
+      {
+        kind: 'fix',
+        text: 'The run recap no longer shows an empty “boss” damage bar (a zero-damage death shockwave was being counted as a weapon).',
+      },
+      {
+        kind: 'balance',
+        text: 'Supply Drop crates drop noticeably less often and repair a little less — it was over-strong.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-19',
     title: 'Care Package',
     blurb: 'Two new synergies, and a clearer freeze.',
     notes: [

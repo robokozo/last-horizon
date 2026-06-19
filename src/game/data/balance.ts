@@ -73,11 +73,22 @@ export const CAPACITOR = {
   surgeCooldownFactor: 0.6,
 } as const
 
+/**
+ * Nova Pulse is a Static-Field discharge: each pulse strips a fraction of every
+ * caught invader's CURRENT hp — brutal on tanks and bosses, can't finish chaff.
+ * Higher ranks widen the field and lower the floor it can grind targets down to.
+ */
 export const NOVA = {
-  maxRadius: 320,
   expandDurationMs: 450,
-  /** every pulse shoves what it hits — Concussive Pulse stacks on top of this */
-  knockbackPx: 45,
+  /** field radius = radiusBase + radiusPerLevel × (level − 1) */
+  radiusBase: 300,
+  radiusPerLevel: 40,
+  /** damage per pulse = current hp × this */
+  staticPercent: 0.25,
+  /** can't reduce a target below floor × maxHp; the floor drops per rank to 5% at ★5 */
+  floorBase: 0.45,
+  floorPerLevel: 0.1,
+  floorMin: 0.05,
 } as const
 
 export const SALVO = {

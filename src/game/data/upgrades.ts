@@ -136,7 +136,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'nova',
     name: 'Nova Pulse',
     description:
-      'Unlock a periodic shockwave that knocks invaders back (or pulse 12% faster, +15 damage)',
+      'A static-field discharge: each pulse strips 25% of the CURRENT health of every invader around the city — murders tanks and bosses, but can’t finish off chaff (stacks: wider field, lower floor, faster pulse)',
     rarity: 'rare',
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
@@ -144,11 +144,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
       if (stats.novaIntervalMs === null) {
         return { ...stats, novaIntervalMs: NOVA_START_INTERVAL_MS }
       }
-      return {
-        ...stats,
-        novaIntervalMs: stats.novaIntervalMs / 1.12,
-        novaDamage: stats.novaDamage + 15,
-      }
+      return { ...stats, novaIntervalMs: stats.novaIntervalMs / 1.12 }
     },
   },
   {
@@ -287,33 +283,6 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
       { id: 'railgun', stacks: 2 },
     ],
     apply: (stats) => ({ ...stats, ionLevel: stats.ionLevel + 1 }),
-  },
-  {
-    id: 'stasis',
-    name: 'Stasis Wave',
-    description: 'Synergy: nova pulses flash-freeze every invader they hit (stacks: longer freeze)',
-    rarity: 'epic',
-    category: 'tactic',
-    maxStacks: BASE_MAX_STACKS,
-    requires: [
-      { id: 'nova', stacks: 2 },
-      { id: 'lockdown', stacks: 2 },
-    ],
-    apply: (stats) => ({ ...stats, stasisLevel: stats.stasisLevel + 1 }),
-  },
-  {
-    id: 'capdump',
-    name: 'Capacitor Dump',
-    description:
-      'Synergy: firing the BFG discharges a boosted nova from every cannon (stacks: stronger novas)',
-    rarity: 'epic',
-    category: 'tactic',
-    maxStacks: BASE_MAX_STACKS,
-    requires: [
-      { id: 'bfg', stacks: 2 },
-      { id: 'nova', stacks: 2 },
-    ],
-    apply: (stats) => ({ ...stats, capdumpLevel: stats.capdumpLevel + 1 }),
   },
   {
     id: 'fabricators',
@@ -538,20 +507,6 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
       { id: 'lockdown', stacks: 2 },
     ],
     apply: (stats) => ({ ...stats, overwatchLevel: stats.overwatchLevel + 1 }),
-  },
-  {
-    id: 'concussive',
-    name: 'Concussive Pulse',
-    description:
-      'Synergy: nova pulses shove invaders away from the city — ideally into your minefield (stacks: harder shove)',
-    rarity: 'epic',
-    category: 'tactic',
-    maxStacks: BASE_MAX_STACKS,
-    requires: [
-      { id: 'nova', stacks: 2 },
-      { id: 'mines', stacks: 2 },
-    ],
-    apply: (stats) => ({ ...stats, concussiveLevel: stats.concussiveLevel + 1 }),
   },
   {
     id: 'magnet',

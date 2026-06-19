@@ -12,6 +12,7 @@ import {
   LANCE,
   LOCKDOWN,
   MINES,
+  NOVA,
   NOVA_START_INTERVAL_MS,
   ORBITAL_LASER,
   RAILGUN,
@@ -229,8 +230,14 @@ const EFFECT_BUILDERS: Record<string, EffectBuilder> = {
     { label: 'Cooldown', value: reload('chain', level, stats), unit: 'sec' },
   ],
   nova: ({ level }) => [
-    // first stack unlocks; later stacks add +15 damage and pulse 12% faster
-    { label: 'Pulse damage', value: BASE_RUN_STATS.novaDamage + 15 * (level - 1), unit: 'dmg' },
+    // static field: % of current hp per pulse, with a per-rank floor and growing radius
+    { label: 'Damage', value: NOVA.staticPercent * 100, unit: 'percent' },
+    {
+      label: 'Floor',
+      value: Math.max(NOVA.floorMin, NOVA.floorBase - NOVA.floorPerLevel * (level - 1)) * 100,
+      unit: 'percent',
+    },
+    { label: 'Radius', value: NOVA.radiusBase + NOVA.radiusPerLevel * (level - 1), unit: 'px' },
     { label: 'Cooldown', value: NOVA_START_INTERVAL_MS / Math.pow(1.12, level - 1), unit: 'sec' },
   ],
   railgun: ({ stats, level }) => [

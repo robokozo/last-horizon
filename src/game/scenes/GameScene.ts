@@ -4,7 +4,6 @@ import {
   AIRDROP,
   AIRSTRIKE,
   ARENA,
-  BASE_RUN_STATS,
   BATTERY,
   BULLET,
   CAPACITOR,
@@ -321,8 +320,6 @@ const MAX_FRAME_DELTA_MS = 100
 const DUMMY_PATROL_PERIOD_S = 5
 /** killable training dummies pop back up after this long */
 const DUMMY_RESPAWN_MS = 1_500
-/** how long a concussive shove takes to play out */
-const KNOCKBACK_DURATION_MS = 250
 /** gravity pulling lobbed mine shells back down, px/s² */
 const MINE_SHELL_GRAVITY = 700
 /** how far above its mine the balloon floats */
@@ -2305,23 +2302,21 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private fireNova({
-    cannon,
-    damageMultiplier = 1,
-  }: {
-    cannon: CannonUnit
-    damageMultiplier?: number
-  }): boolean {
+  private fireNova({ cannon }: { cannon: CannonUnit }): boolean {
     soundEngine.play({ name: 'nova' })
-    const novaStacks = Math.max(1, this.upgradeStacks.get('nova') ?? 1)
+    const level = Math.max(1, this.upgradeStacks.get('nova') ?? 1)
+    const radius = NOVA.radiusBase + NOVA.radiusPerLevel * (level - 1)
+    // the floor lowers as the field is ranked up — 5% of max hp at ★5
+    const floorPercent = Math.max(NOVA.floorMin, NOVA.floorBase - NOVA.floorPerLevel * (level - 1))
     const originX = cannon.x
+
     const ring = this.add
       .circle(originX, this.cannonY, BATTERY.shieldRadius)
-      .setStrokeStyle(4 + 1.5 * (novaStacks - 1), 0x67e8f9, 0.9)
+      .setStrokeStyle(4 + 1.5 * (level - 1), 0x67e8f9, 0.9)
       .setDepth(DEPTHS.effects)
     this.tweens.add({
       targets: ring,
-      radius: NOVA.maxRadius,
+      radius,
       alpha: 0,
       duration: NOVA.expandDurationMs,
       ease: 'Cubic.easeOut',
@@ -2330,40 +2325,21 @@ export class GameScene extends Phaser.Scene {
       },
     })
 
-    const stasisFreezeMs =
-      this.stats.stasisLevel > 0
-        ? SYNERGIES.stasis.freezeMsBase +
-          SYNERGIES.stasis.freezeMsPerLevel * (this.stats.stasisLevel - 1)
-        : 0
-    // every pulse shoves — the concussive pulse synergy stacks extra distance on top
-    const knockbackPx =
-      NOVA.knockbackPx +
-      (this.stats.concussiveLevel > 0
-        ? SYNERGIES.concussive.knockbackPxBase +
-          SYNERGIES.concussive.knockbackPxPerLevel * (this.stats.concussiveLevel - 1)
-        : 0)
     for (const enemy of this.enemies) {
       if (enemy.isDead === true) {
         continue
       }
       const distanceSq = (enemy.image.x - originX) ** 2 + (enemy.image.y - this.cannonY) ** 2
-      if (distanceSq <= (NOVA.maxRadius + enemy.radius) ** 2) {
-        if (stasisFreezeMs > 0) {
-          this.applyFreeze({ enemy, durationMs: stasisFreezeMs })
-        }
-        this.applyKnockback({
-          enemy,
-          angleRad: Math.atan2(enemy.image.y - this.cannonY, enemy.image.x - originX),
-          distancePx: knockbackPx,
-        })
-        this.damageEnemy({
-          enemy,
-          // novaDamage is a flat base — global damage bonuses scale it like every other weapon
-          amount:
-            this.stats.novaDamage * damageMultiplier * (this.stats.damage / BASE_RUN_STATS.damage),
-          source: 'nova',
-        })
+      if (distanceSq > (radius + enemy.radius) ** 2) {
+        continue
       }
+      // static field: strip a slice of CURRENT hp, but never grind below the floor
+      const floorHp = enemy.maxHp * floorPercent
+      if (enemy.hp <= floorHp) {
+        continue
+      }
+      const amount = Math.min(enemy.hp * NOVA.staticPercent, enemy.hp - floorHp)
+      this.damageEnemy({ enemy, amount, source: 'nova', canCrit: false })
     }
     return true
   }
@@ -2412,27 +2388,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** a decaying shove — push direction and strength chosen by the caller */
-  private applyKnockback({
-    enemy,
-    angleRad,
-    distancePx,
-  }: {
-    enemy: EnemyUnit
-    angleRad: number
-    distancePx: number
-  }): void {
-    // the mothership is far too heavy to shove
-    if (enemy.isDead === true || enemy.definition.kind === 'mothership') {
-      return
-    }
-    const speed = distancePx / (KNOCKBACK_DURATION_MS / 1_000)
-    enemy.knockback = {
-      velocityX: Math.cos(angleRad) * speed,
-      velocityY: Math.sin(angleRad) * speed,
-      remainingMs: KNOCKBACK_DURATION_MS,
-    }
-  }
-
   /**
    * thermal shock synergy: opposing statuses annihilate — both are consumed
    * and the target takes a burst. Returns false when the synergy isn't owned.
@@ -3804,16 +3759,6 @@ export class GameScene extends Phaser.Scene {
         })
         this.damageEnemy({ enemy, amount: boltDamage, source: 'chain' })
         this.applyStun({ enemy, durationMs: stunMs })
-      }
-    }
-
-    // capacitor dump synergy: the discharge sets off a boosted nova on every cannon
-    if (this.stats.capdumpLevel > 0) {
-      const novaMultiplier =
-        SYNERGIES.capdump.novaDamageMultBase +
-        SYNERGIES.capdump.novaDamageMultPerLevel * (this.stats.capdumpLevel - 1)
-      for (const cannon of this.cannons) {
-        this.fireNova({ cannon, damageMultiplier: novaMultiplier })
       }
     }
   }
