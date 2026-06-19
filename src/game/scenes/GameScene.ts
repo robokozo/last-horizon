@@ -1367,28 +1367,41 @@ export class GameScene extends Phaser.Scene {
       const speed = this.effectiveEnemySpeed({ enemy })
 
       // the mothership descends to its hover line, then drifts side to side
-      // while heaving vertically — diving in toward the city and rising back out
+      // (as it always has) while also heaving up and down between the hover line
+      // and a lower altitude near the city
       if (enemy.definition.kind === 'mothership') {
         if (enemy.directionX === 0) {
           // still descending to the hover line
           enemy.directionY = 1
           enemy.image.y += speed * seconds
           if (enemy.image.y >= this.bossHoverY()) {
-            enemy.directionY = 0
+            // arrived: start drifting sideways and heaving downward into the bob
             enemy.directionX = Math.random() < 0.5 ? -1 : 1
+            enemy.directionY = 1
             enemy.speed = BOSS.driftSpeedPxPerSec
           }
         } else {
+          // side-to-side drift, bouncing off the arena edges
           if (enemy.image.x < 140) {
             enemy.directionX = 1
           } else if (enemy.image.x > this.arenaWidth - 140) {
             enemy.directionX = -1
           }
           enemy.image.x += enemy.directionX * speed * seconds
-          // vertical bob layered on the drift: the hover line is the high point,
-          // and the boss heaves down toward the city and back up on a sine
-          const bob = (1 - Math.cos((this.elapsedMs / 1_000) * BOSS.bobSpeedRadPerSec)) / 2
-          enemy.image.y = this.bossHoverY() + bob * BOSS.bobAmplitudePx
+          // vertical heave layered on top: rise to the hover line, sink toward the
+          // city, repeat. Frozen/stunned bosses (speed 0) hold still on both axes.
+          if (speed > 0) {
+            const topY = this.bossHoverY()
+            const bottomY = topY + BOSS.bobAmplitudePx
+            enemy.image.y += enemy.directionY * BOSS.bobSpeedPxPerSec * seconds
+            if (enemy.image.y <= topY) {
+              enemy.image.y = topY
+              enemy.directionY = 1
+            } else if (enemy.image.y >= bottomY) {
+              enemy.image.y = bottomY
+              enemy.directionY = -1
+            }
+          }
         }
         continue
       }
@@ -1478,6 +1491,40 @@ export class GameScene extends Phaser.Scene {
       return distanceSq <= rangeSq
     })
     inRange.sort((a, b) => b.image.y - a.image.y)
+    return inRange.slice(0, count)
+  }
+
+  /**
+   * The plain-nearest targets to an origin — no urgency weighting. The rail gun
+   * uses this: it simply points at the closest invader and fires. Anything else
+   * the beam happens to skewer along that line is coincidental splash.
+   */
+  private findNearestEnemiesInRange({
+    originX,
+    originY,
+    count,
+    range,
+  }: {
+    originX: number
+    originY: number
+    count: number
+    range?: number
+  }): Array<EnemyUnit> {
+    const rangeSq = (range ?? this.stats.range) ** 2
+    const inRange = this.enemies
+      .filter((enemy) => {
+        if (enemy.isDead === true || this.isEnemyOnField({ enemy }) === false) {
+          return false
+        }
+        const distanceSq = (enemy.image.x - originX) ** 2 + (enemy.image.y - originY) ** 2
+        return distanceSq <= rangeSq
+      })
+      .sort(
+        (a, b) =>
+          (a.image.x - originX) ** 2 +
+          (a.image.y - originY) ** 2 -
+          ((b.image.x - originX) ** 2 + (b.image.y - originY) ** 2),
+      )
     return inRange.slice(0, count)
   }
 
@@ -3217,8 +3264,9 @@ export class GameScene extends Phaser.Scene {
   private fireRailgun({ cannon }: { cannon: CannonUnit }): boolean {
     // twin rails synergy: the fire-control computer splits the shot
     const beamCount = 1 + SYNERGIES.twinRail.extraBeamsPerLevel * this.stats.twinRailLevel
-    // the rail gun reaches the whole field — it can answer any invader on screen
-    const targets = this.findMostUrgentEnemiesInRange({
+    // no smart aiming: the rail gun just points at the nearest invader and fires
+    // the full length of the field — anything else it skewers is coincidental
+    const targets = this.findNearestEnemiesInRange({
       originX: cannon.x,
       originY: cannon.y,
       count: beamCount,

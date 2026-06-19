@@ -30,6 +30,10 @@ export const PATCH_NOTES: Array<PatchEntry> = [
         text: 'Rail Gun now has unlimited range — its beam reaches clear across the field, so it no longer holds fire waiting for targets to wander into a range ring.',
       },
       {
+        kind: 'balance',
+        text: 'Rail Gun no longer tries to aim for the most dangerous invader — it simply points at the NEAREST one and fires. Anything else the beam happens to skewer along that line is coincidental.',
+      },
+      {
         kind: 'new',
         text: 'New synergy — Orbital Sweep (Orbital Laser ★2 + Lance ★2): instead of one instant blast from orbit, the beam stays lit and a column of annihilation roams across the battlefield for several seconds, raking everything it crosses. Ranking it up lengthens the sweep.',
       },
