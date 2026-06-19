@@ -66,7 +66,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'railgun',
     name: 'Rail Gun',
     description:
-      'Periodically fires a piercing beam through the lowest invader, hitting everything along the line (stacks: faster, stronger)',
+      'Periodically fires a full-field piercing beam through the lowest invader, hitting everything along the line at any range (stacks: faster, stronger)',
     rarity: 'epic',
     category: 'weapon',
     maxStacks: BASE_MAX_STACKS,
@@ -577,6 +577,20 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
       { id: 'rocket', stacks: 2 },
     ],
     apply: (stats) => ({ ...stats, momentumLevel: stats.momentumLevel + 1 }),
+  },
+  {
+    id: 'orbitalsweep',
+    name: 'Orbital Sweep',
+    description:
+      'Synergy: the lance’s targeting keeps the orbital beam lit — instead of one instant strike, a column of annihilation roams across the field for a few seconds, raking everything it crosses (stacks: longer sweep)',
+    rarity: 'epic',
+    category: 'tactic',
+    maxStacks: BASE_MAX_STACKS,
+    requires: [
+      { id: 'orbital-laser', stacks: 2 },
+      { id: 'lance', stacks: 2 },
+    ],
+    apply: (stats) => ({ ...stats, orbitalSweepLevel: stats.orbitalSweepLevel + 1 }),
   },
   {
     id: 'seeker',

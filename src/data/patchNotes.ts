@@ -22,6 +22,21 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-19',
+    title: 'Roaming Beam',
+    blurb: 'The rail gun reaches forever, and the orbital strike learns to walk.',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'Rail Gun now has unlimited range — its beam reaches clear across the field, so it no longer holds fire waiting for targets to wander into a range ring.',
+      },
+      {
+        kind: 'new',
+        text: 'New synergy — Orbital Sweep (Orbital Laser ★2 + Lance ★2): instead of one instant blast from orbit, the beam stays lit and a column of annihilation roams across the battlefield for several seconds, raking everything it crosses. Ranking it up lengthens the sweep.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-19',
     title: 'Static Field',
     blurb: 'Nova Pulse — and your synergies — become tank-melting static fields.',
     notes: [

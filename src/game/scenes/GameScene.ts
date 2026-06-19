@@ -23,6 +23,7 @@ import {
   MINES,
   NOVA,
   ORBITAL_LASER,
+  ORBITAL_SWEEP,
   SANDBOX_STREAM,
   SHATTERPOINT,
   STORM_FRONT,
@@ -188,6 +189,22 @@ interface OrbitalStrikeUnit {
   x: number
   y: number
   lockRemainingMs: number
+  isDead: boolean
+}
+
+/** orbital sweep synergy: a lit column that roams the field, damaging on a tick */
+interface OrbitalPulseUnit {
+  x: number
+  y: number
+  velocityX: number
+  velocityY: number
+  radius: number
+  /** damage dealt to everything in radius each tick */
+  damage: number
+  remainingMs: number
+  tickAccumulatorMs: number
+  column: Phaser.GameObjects.Rectangle | null
+  glow: Phaser.GameObjects.Arc | null
   isDead: boolean
 }
 
@@ -483,6 +500,7 @@ export class GameScene extends Phaser.Scene {
   private swarms: Array<SwarmUnit> = []
   private stasisMissiles: Array<StasisMissileUnit> = []
   private orbitalStrikes: Array<OrbitalStrikeUnit> = []
+  private orbitalPulses: Array<OrbitalPulseUnit> = []
   private ionTrails: Array<IonTrailUnit> = []
   private naniteDrones: Array<Phaser.GameObjects.Image> = []
   private shieldImage!: Phaser.GameObjects.Image
@@ -762,6 +780,11 @@ export class GameScene extends Phaser.Scene {
     this.cloudImages = []
     this.sweeps = []
     this.orbitalStrikes = []
+    for (const pulse of this.orbitalPulses) {
+      pulse.column?.destroy()
+      pulse.glow?.destroy()
+    }
+    this.orbitalPulses = []
     this.ionTrails = []
     this.dummyRespawnQueue = []
 
@@ -1433,12 +1456,15 @@ export class GameScene extends Phaser.Scene {
     originX,
     originY,
     count,
+    range,
   }: {
     originX: number
     originY: number
     count: number
+    /** override the gun's reach — the rail gun fires the full length of the field */
+    range?: number
   }): Array<EnemyUnit> {
-    const rangeSq = this.stats.range ** 2
+    const rangeSq = (range ?? this.stats.range) ** 2
     const inRange = this.enemies.filter((enemy) => {
       if (enemy.isDead === true || this.isEnemyOnField({ enemy }) === false) {
         return false
@@ -3124,10 +3150,12 @@ export class GameScene extends Phaser.Scene {
   private fireRailgun({ cannon }: { cannon: CannonUnit }): boolean {
     // twin rails synergy: the fire-control computer splits the shot
     const beamCount = 1 + SYNERGIES.twinRail.extraBeamsPerLevel * this.stats.twinRailLevel
+    // the rail gun reaches the whole field — it can answer any invader on screen
     const targets = this.findMostUrgentEnemiesInRange({
       originX: cannon.x,
       originY: cannon.y,
       count: beamCount,
+      range: Number.POSITIVE_INFINITY,
     })
     if (targets.length === 0) {
       return false
@@ -3146,7 +3174,8 @@ export class GameScene extends Phaser.Scene {
     cannon.barrelImage.setRotation(angle)
     const directionX = Math.cos(angle)
     const directionY = Math.sin(angle)
-    const beamLength = this.stats.range
+    // the beam carries clear across the field, hitting everything along its line
+    const beamLength = Math.hypot(this.arenaWidth, this.arenaHeight)
     const startX = cannon.x + directionX * BARREL_LENGTH
     const startY = muzzleY + directionY * BARREL_LENGTH
     const endX = startX + directionX * beamLength
@@ -4347,10 +4376,117 @@ export class GameScene extends Phaser.Scene {
       strike.lockRemainingMs -= delta
       if (strike.lockRemainingMs <= 0) {
         strike.isDead = true
-        this.fireOrbitalStrike({ strike })
+        // orbital sweep synergy: the beam roams instead of striking once
+        if (this.stats.orbitalSweepLevel > 0) {
+          this.spawnOrbitalPulse({ strike })
+        } else {
+          this.fireOrbitalStrike({ strike })
+        }
       }
     }
     this.orbitalStrikes = this.orbitalStrikes.filter((strike) => strike.isDead === false)
+    this.updateOrbitalPulses({ delta })
+  }
+
+  private spawnOrbitalPulse({ strike }: { strike: OrbitalStrikeUnit }): void {
+    const level = this.stats.orbitalLaserLevel
+    let radius = ORBITAL_LASER.strikeRadius + ORBITAL_LASER.strikeRadiusPerLevel * (level - 1)
+    if (this.stats.paintedLevel > 0) {
+      radius *=
+        1 +
+        SYNERGIES.painted.radiusBonusBase +
+        SYNERGIES.painted.radiusBonusPerLevel * (this.stats.paintedLevel - 1)
+    }
+    const strikeDamage =
+      this.stats.damage * weaponDamageMultiplier({ weaponId: 'orbital-laser', level })
+    const duration =
+      ORBITAL_SWEEP.durationMsBase +
+      ORBITAL_SWEEP.durationMsPerLevel * (this.stats.orbitalSweepLevel - 1)
+    const angle = Math.random() * Math.PI * 2
+
+    let column: Phaser.GameObjects.Rectangle | null = null
+    let glow: Phaser.GameObjects.Arc | null = null
+    if (this.suppressVisuals === false) {
+      column = this.add
+        .rectangle(strike.x, strike.y / 2, radius * 0.5, strike.y, 0xfecdd3, 0.5)
+        .setDepth(DEPTHS.effects)
+      glow = this.add.circle(strike.x, strike.y, radius, 0xf43f5e, 0.22).setDepth(DEPTHS.effects)
+    }
+
+    this.orbitalPulses.push({
+      x: strike.x,
+      y: strike.y,
+      velocityX: Math.cos(angle) * ORBITAL_SWEEP.speedPxPerSec,
+      velocityY: Math.sin(angle) * ORBITAL_SWEEP.speedPxPerSec,
+      radius,
+      damage: strikeDamage * ORBITAL_SWEEP.tickDamageFraction,
+      remainingMs: duration,
+      tickAccumulatorMs: 0,
+      column,
+      glow,
+      isDead: false,
+    })
+  }
+
+  private updateOrbitalPulses({ delta }: { delta: number }): void {
+    if (this.orbitalPulses.length === 0) {
+      return
+    }
+    const seconds = delta / 1_000
+    for (const pulse of this.orbitalPulses) {
+      if (pulse.isDead === true) {
+        continue
+      }
+      pulse.x += pulse.velocityX * seconds
+      pulse.y += pulse.velocityY * seconds
+      // bounce off the play area so the beam wanders without leaving the field
+      if (pulse.x < pulse.radius) {
+        pulse.x = pulse.radius
+        pulse.velocityX = Math.abs(pulse.velocityX)
+      } else if (pulse.x > this.arenaWidth - pulse.radius) {
+        pulse.x = this.arenaWidth - pulse.radius
+        pulse.velocityX = -Math.abs(pulse.velocityX)
+      }
+      if (pulse.y < pulse.radius) {
+        pulse.y = pulse.radius
+        pulse.velocityY = Math.abs(pulse.velocityY)
+      } else if (pulse.y > this.groundY - pulse.radius) {
+        pulse.y = this.groundY - pulse.radius
+        pulse.velocityY = -Math.abs(pulse.velocityY)
+      }
+
+      pulse.tickAccumulatorMs += delta
+      while (pulse.tickAccumulatorMs >= ORBITAL_SWEEP.tickMs) {
+        pulse.tickAccumulatorMs -= ORBITAL_SWEEP.tickMs
+        for (const enemy of this.enemies) {
+          if (enemy.isDead === true) {
+            continue
+          }
+          const distanceSq = (enemy.image.x - pulse.x) ** 2 + (enemy.image.y - pulse.y) ** 2
+          if (distanceSq <= (pulse.radius + enemy.radius) ** 2) {
+            this.damageEnemy({ enemy, amount: pulse.damage, source: 'orbital-laser' })
+          }
+        }
+      }
+
+      if (pulse.column !== null) {
+        pulse.column
+          .setX(pulse.x)
+          .setY(pulse.y / 2)
+          .setSize(pulse.radius * 0.5, pulse.y)
+      }
+      if (pulse.glow !== null) {
+        pulse.glow.setPosition(pulse.x, pulse.y)
+      }
+
+      pulse.remainingMs -= delta
+      if (pulse.remainingMs <= 0) {
+        pulse.isDead = true
+        pulse.column?.destroy()
+        pulse.glow?.destroy()
+      }
+    }
+    this.orbitalPulses = this.orbitalPulses.filter((pulse) => pulse.isDead === false)
   }
 
   private fireOrbitalStrike({ strike }: { strike: OrbitalStrikeUnit }): void {

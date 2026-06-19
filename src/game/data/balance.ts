@@ -192,6 +192,7 @@ export const BASE_RUN_STATS: RunStats = {
   momentumLevel: 0,
   airdropLevel: 0,
   seekerLevel: 0,
+  orbitalSweepLevel: 0,
 }
 
 export const SYNERGIES = {
@@ -424,6 +425,19 @@ export const ORBITAL_LASER = {
   /** strike damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
   baseDamageMult: 16,
   damageMultPerLevel: 14,
+} as const
+
+/**
+ * Orbital Laser × Thermal Lance: instead of one instant column, the orbital beam
+ * stays lit and roams across the field for a while, raking everything it crosses.
+ */
+export const ORBITAL_SWEEP = {
+  durationMsBase: 3_000,
+  durationMsPerLevel: 700,
+  speedPxPerSec: 170,
+  tickMs: 180,
+  /** per-tick damage = the orbital strike's hit × this, so the whole roam ≈ a few strikes */
+  tickDamageFraction: 0.35,
 } as const
 
 export const STORM_FRONT = {
