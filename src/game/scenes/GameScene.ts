@@ -1366,24 +1366,29 @@ export class GameScene extends Phaser.Scene {
       }
       const speed = this.effectiveEnemySpeed({ enemy })
 
-      // the mothership descends to its hover line, then drifts and bombards
+      // the mothership descends to its hover line, then drifts side to side
+      // while heaving vertically — diving in toward the city and rising back out
       if (enemy.definition.kind === 'mothership') {
-        if (enemy.image.y < this.bossHoverY()) {
-          enemy.directionX = 0
+        if (enemy.directionX === 0) {
+          // still descending to the hover line
           enemy.directionY = 1
           enemy.image.y += speed * seconds
-        } else {
-          if (enemy.directionY !== 0 || enemy.directionX === 0) {
+          if (enemy.image.y >= this.bossHoverY()) {
             enemy.directionY = 0
             enemy.directionX = Math.random() < 0.5 ? -1 : 1
             enemy.speed = BOSS.driftSpeedPxPerSec
           }
+        } else {
           if (enemy.image.x < 140) {
             enemy.directionX = 1
           } else if (enemy.image.x > this.arenaWidth - 140) {
             enemy.directionX = -1
           }
           enemy.image.x += enemy.directionX * speed * seconds
+          // vertical bob layered on the drift: the hover line is the high point,
+          // and the boss heaves down toward the city and back up on a sine
+          const bob = (1 - Math.cos((this.elapsedMs / 1_000) * BOSS.bobSpeedRadPerSec)) / 2
+          enemy.image.y = this.bossHoverY() + bob * BOSS.bobAmplitudePx
         }
         continue
       }

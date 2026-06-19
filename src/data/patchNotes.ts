@@ -33,6 +33,10 @@ export const PATCH_NOTES: Array<PatchEntry> = [
         kind: 'new',
         text: 'New synergy — Orbital Sweep (Orbital Laser ★2 + Lance ★2): instead of one instant blast from orbit, the beam stays lit and a column of annihilation roams across the battlefield for several seconds, raking everything it crosses. Ranking it up lengthens the sweep.',
       },
+      {
+        kind: 'balance',
+        text: 'Boss motherships now hover lower and heave vertically — diving in toward the city and rising back out as they drift side to side, instead of sliding flatly across the top of the screen.',
+      },
     ],
   },
   {

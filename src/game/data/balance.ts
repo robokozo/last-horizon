@@ -489,6 +489,10 @@ export const BOSS = {
   /** minimum hover altitude — the scene lowers the hover line on tall portrait arenas so the guns can always reach the boss */
   hoverY: 170,
   driftSpeedPxPerSec: 30,
+  /** once hovering, the boss bobs vertically around its hover line — diving in toward the city and rising back out */
+  bobAmplitudePx: 90,
+  /** angular speed of the vertical bob (radians/sec) — ~0.18 Hz, a slow menacing heave */
+  bobSpeedRadPerSec: 1.1,
   /** plasma bolts dropped at the city while hovering */
   boltIntervalMs: 2_600,
   boltSpeedPxPerSec: 180,
