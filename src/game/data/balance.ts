@@ -109,7 +109,7 @@ export const BASE_RUN_STATS: RunStats = {
   rerollsPerRun: 1,
   banishesPerRun: 0,
   hasCapacitor: false,
-  passiveDustPerMinute: 0,
+  passiveDustPerWave: 0,
   capacitorChargeRate: 1,
   surgeDamageBonus: 0.25,
   surgeDurationMs: 12_000,

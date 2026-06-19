@@ -37,7 +37,7 @@ export type MetaStat =
   | 'capacitorChargePercent'
   | 'surgeDamagePercent'
   | 'surgeDurationMsFlat'
-  | 'passivePerMinuteFlat'
+  | 'passivePerWaveFlat'
   | 'interestPercentFlat'
 
 export interface SkillEffect {
@@ -414,8 +414,8 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
       primary: {
         name: 'Dust Siphon',
         icon: '🌫️',
-        description: '+1 stardust generated per minute of battle',
-        effects: [{ stat: 'passivePerMinuteFlat', amount: 1 }],
+        description: '+2 stardust for every wave you reach',
+        effects: [{ stat: 'passivePerWaveFlat', amount: 2 }],
       },
       secondary: {
         name: 'Compound Cells',
@@ -803,7 +803,7 @@ export function buildStartingStats({
     luck: BASE_RUN_STATS.luck * (1 + valueOf('luckPercent') / 100),
     xpMultiplier: BASE_RUN_STATS.xpMultiplier * (1 + valueOf('xpPercent') / 100),
     hasCapacitor: valueOf('capacitorUnlockFlat') > 0,
-    passiveDustPerMinute: BASE_RUN_STATS.passiveDustPerMinute + valueOf('passivePerMinuteFlat'),
+    passiveDustPerWave: BASE_RUN_STATS.passiveDustPerWave + valueOf('passivePerWaveFlat'),
     capacitorChargeRate:
       BASE_RUN_STATS.capacitorChargeRate * (1 + valueOf('capacitorChargePercent') / 100),
     surgeDamageBonus: BASE_RUN_STATS.surgeDamageBonus + valueOf('surgeDamagePercent') / 100,
