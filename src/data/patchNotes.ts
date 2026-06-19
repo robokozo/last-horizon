@@ -39,7 +39,11 @@ export const PATCH_NOTES: Array<PatchEntry> = [
       },
       {
         kind: 'balance',
-        text: 'Farsight Protocol (paragon keystone) now grants +1 card to choose from on every level-up in place of its projectile pierce — a guaranteed extra option on every pick. Pierce is being reserved for weapons that earn it.',
+        text: 'Farsight Protocol (paragon keystone) now grants +1 card to choose from on every level-up in place of its projectile pierce — a guaranteed extra option on every pick.',
+      },
+      {
+        kind: 'balance',
+        text: 'Tungsten Core (paragon notable) drops projectile pierce for dense rounds: +0.5× critical-hit damage — the board’s only crit-damage source, the keystone of a crit build. Pierce is now reserved for the weapons that earn it.',
       },
     ],
   },

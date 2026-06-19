@@ -256,9 +256,10 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     },
     notable: {
       name: 'Tungsten Core',
-      icon: '📌',
-      description: 'Projectiles pierce +1 invader',
-      effects: [{ stat: 'pierceFlat', amount: 1 }],
+      icon: '💢',
+      description:
+        'Dense rounds: critical hits deal +0.5× damage (the board’s only crit-damage source)',
+      effects: [{ stat: 'critMultiplierFlat', amount: 0.5 }],
     },
     keystone: {
       name: 'Autoloaders',
