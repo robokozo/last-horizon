@@ -218,8 +218,8 @@ export const SYNERGIES = {
   },
   /** flamethrower × devourer: when a burning invader dies, its fire leaps to neighbors */
   wildfire: {
-    spreadRadiusBase: 90,
-    spreadRadiusPerLevel: 20,
+    spreadRadiusBase: 130,
+    spreadRadiusPerLevel: 18,
   },
   /** flamethrower × thermal lance: the beam ignites everything it sears; burn dps = bullet damage × mult */
   thermite: {
@@ -229,12 +229,12 @@ export const SYNERGIES = {
   /** lock down × flamethrower: opposing statuses detonate, consuming both */
   thermalshock: {
     /** burst damage = bullet damage × (burstDamageMultBase + burstDamageMultPerLevel × (level − 1)) */
-    burstDamageMultBase: 2,
-    burstDamageMultPerLevel: 1,
+    burstDamageMultBase: 3,
+    burstDamageMultPerLevel: 1.5,
   },
   /** tesla arc × flamethrower: the bolt jumps extra links per status afflicting its anchor */
   discharge: {
-    linksPerStatusPerLevel: 1,
+    linksPerStatusPerLevel: 2,
   },
   /** bfg × lock down: the discharge doubles as an EMP, flash-freezing the field */
   emp: {
@@ -250,8 +250,8 @@ export const SYNERGIES = {
   },
   /** orbital laser × flamethrower: the strike leaves its blast zone burning */
   glassed: {
-    burnDpsMultBase: 1,
-    burnDpsMultPerLevel: 0.4,
+    burnDpsMultBase: 1.5,
+    burnDpsMultPerLevel: 0.6,
   },
   /** orbital laser × nanite: drone spotters — faster locks, elites painted first */
   uplink: {
@@ -270,8 +270,8 @@ export const SYNERGIES = {
   },
   /** thermal lance × lock down: frozen invaders don't block the beam and take bonus damage */
   overwatch: {
-    frozenDamageBonusBase: 0.25,
-    frozenDamageBonusPerLevel: 0.25,
+    frozenDamageBonusBase: 0.6,
+    frozenDamageBonusPerLevel: 0.4,
   },
   /** nova pulse × mine layer: the pulse shoves invaders away from the city */
   concussive: {
@@ -325,8 +325,12 @@ export const SYNERGIES = {
    * each child carrying the FULL remaining budget */
   mitosis: {
     splitCount: 2,
-    /** leap radius multiplier: 1 + perLevel × (level − 1) beyond the base */
-    leapRadiusBonusPerLevel: 0.25,
+    /** leap radius multiplier: 1 + perLevel × (level − 1) beyond the base. Kept
+     * gentle so high ranks don't scatter the cascade onto isolated, distant hosts */
+    leapRadiusBonusPerLevel: 0.15,
+    /** each rank raises the live-swarm ceiling, so ★5 sustains a bigger cascade
+     * than ★4 (the ceiling, not leap radius, is what caps steady-state damage) */
+    extraMaxSwarmsPerLevel: 8,
   },
 } as const
 
@@ -340,10 +344,10 @@ export const DEVOURER = {
   intervalStepMs: 600,
   minIntervalMs: 4_000,
   /** total payload budget = bullet damage × (baseBudgetMult + budgetMultPerLevel × (level − 1)) */
-  baseBudgetMult: 6,
+  baseBudgetMult: 8,
   budgetMultPerLevel: 3,
   /** drain speed = bullet damage × (baseDrainMult + drainMultPerLevel × (level − 1)) per second */
-  baseDrainMult: 2,
+  baseDrainMult: 2.5,
   drainMultPerLevel: 0.75,
   /** how far the swarm can leap to a new host */
   leapRadiusPx: 150,
@@ -355,21 +359,21 @@ export const DEVOURER = {
 
 /** proximity mines: every cannon lobs its own volley, held aloft on balloons */
 export const MINES = {
-  baseIntervalMs: 8_000,
+  baseIntervalMs: 7_000,
   intervalStepMs: 700,
   minIntervalMs: 5_000,
   /** mines per volley = floor(minesPerDrop + minesPerDropPerLevel × (level − 1)) */
   minesPerDrop: 1,
-  minesPerDropPerLevel: 0.5,
+  minesPerDropPerLevel: 0.8,
   /** active-mine ceiling scales with deployed cannons */
-  maxActivePerCannon: 6,
+  maxActivePerCannon: 8,
   armDelayMs: 500,
-  proximityPx: 30,
-  blastRadius: 85,
-  blastRadiusPerLevel: 8,
+  proximityPx: 42,
+  blastRadius: 95,
+  blastRadiusPerLevel: 14,
   /** mine damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
-  baseDamageMult: 2.5,
-  damageMultPerLevel: 1.2,
+  baseDamageMult: 3,
+  damageMultPerLevel: 1.8,
 } as const
 
 /** paints a reticle on the densest cluster, then fires a column from orbit */
@@ -379,10 +383,10 @@ export const ORBITAL_LASER = {
   minIntervalMs: 9_000,
   lockOnMs: 800,
   strikeRadius: 90,
-  strikeRadiusPerLevel: 12,
+  strikeRadiusPerLevel: 18,
   /** strike damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
   baseDamageMult: 16,
-  damageMultPerLevel: 8,
+  damageMultPerLevel: 14,
 } as const
 
 export const STORM_FRONT = {
@@ -544,6 +548,23 @@ export const FILLER_REWARDS = {
   stardustPerWave: 1,
   repairIntegrity: 25,
   damagePercent: 5,
+} as const
+
+/**
+ * Training-range "stream" benchmark: a never-ending wave of one uniform invader
+ * type that flows in, deals no damage, and dies to your weapons. The spawn
+ * cadence and lateral position come from a seeded RNG so every weapon faces the
+ * identical swarm. Enemy HP is set by the caller (SandboxLayout.dummyHp).
+ */
+export const SANDBOX_STREAM = {
+  /** base gap between spawns; each gap is jittered ±jitter by the seeded RNG */
+  baseSpawnIntervalMs: 240,
+  intervalJitter: 0.5,
+  /** descent speed (px/s) of the uniform invader — drifter pace, so intercepts read true */
+  enemySpeed: 55,
+  enemyRadius: 12,
+  /** fallback HP when the caller leaves dummyHp null */
+  defaultHp: 100,
 } as const
 
 export const NOVA_START_INTERVAL_MS = 5_000

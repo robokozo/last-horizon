@@ -319,7 +319,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'fabricators',
     name: 'Auto-Fabricators',
     description:
-      'Synergy: nanite drones manufacture munitions — +1 mine per deployment and +2 active mine cap (stacks)',
+      'Synergy: nanite drones manufacture munitions — +1 mine per deployment and +2 active mine cap. Their saboteur routines jam enemy repair: no mender heals, no elite regen (stacks)',
     rarity: 'epic',
     category: 'tactic',
     maxStacks: BASE_MAX_STACKS,
@@ -361,7 +361,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'mitosis',
     name: 'Mitosis',
     description:
-      'Synergy: when a devoured host dies, the swarm divides — TWO payloads leap out, each carrying the full remaining budget, dividing again on every kill (stacks: longer leaps)',
+      'Synergy: when a devoured host dies, the swarm divides — TWO payloads leap out, each carrying the full remaining budget, dividing again on every kill. The nanites also jam enemy repair: no mender heals, no elite regen (stacks: longer leaps)',
     rarity: 'epic',
     category: 'tactic',
     maxStacks: BASE_MAX_STACKS,
@@ -501,7 +501,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'uplink',
     name: 'Target Uplink',
     description:
-      'Synergy: repair drones double as spotters — the orbital laser locks on faster and paints elites first (stacks: faster locks)',
+      'Synergy: repair drones double as spotters — the orbital laser locks on faster and paints elites first. They also jam enemy repair: no mender heals, no elite regen (stacks: faster locks)',
     rarity: 'epic',
     category: 'tactic',
     maxStacks: BASE_MAX_STACKS,

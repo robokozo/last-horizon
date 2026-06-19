@@ -5,6 +5,15 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { createPlanetGame } from '@/game/createGame'
 import { SOURCE_LABELS } from '@/game/data/sourceLabels'
 import {
+  type DpsDiagnosticConfig,
+  type DpsDiagnosticResult,
+  type DpsRow,
+  runDpsDiagnostic,
+  runSynergyDiagnostic,
+  type SynergyDiagnosticResult,
+  type SynergyRow,
+} from '@/game/dpsDiagnostic'
+import {
   describeSynergyRequirements,
   UPGRADE_DEFINITIONS,
   type UpgradeDefinition,
@@ -234,110 +243,355 @@ function resetAll(): void {
   scheduleRestart()
 }
 
-// ── automated benchmark ───────────────────────────────────────────────
+// ── automated DPS diagnostic ───────────────────────────────────────────
+// Sweeps every damage weapon across every upgrade tier against a seeded,
+// never-ending stream of uniform non-damaging invaders, 3 minutes each.
 
-interface BenchmarkRow {
-  cardId: string
-  name: string
-  tier1Dps: number | null
-  tier5Dps: number | null
-}
+const DIAG_TIERS = [1, 2, 3, 4, 5]
+const DIAG_DURATION_MS = 180_000
+/** watch mode plays each run live, so a shorter window keeps the sweep watchable */
+const WATCH_DURATION_MS = 24_000
+const DIAG_SEED = 1337
+/** target HP the swarm spawns with — set the toughness the weapons are graded against */
+const DIAG_HP_OPTIONS = [25, 100, 500, 2000] as const
+/** the HP values the one-click sweep grades against, back to back */
+const DIAG_HP_SWEEP = [25, 100, 1000] as const
+/** per-cannon weapons (flak, flame, lance, mines, main) scale with this; pick the count to grade at */
+const DIAG_CANNON_OPTIONS = [1, 2, 4, 6] as const
+/** playback speed for watch mode */
+const DIAG_WATCH_SPEEDS = [8, 16, 32] as const
 
-/** damage-dealing weapons only — cc/utility (lockdown, cloud, nanite, mines) need moving targets */
-const BENCHMARK_TARGETS: Array<{ cardId: string; source: string }> = [
-  { cardId: 'salvo', source: 'main' },
-  { cardId: 'flak', source: 'flak' },
-  { cardId: 'flame', source: 'flame' },
-  { cardId: 'devourer', source: 'devourer' },
-  { cardId: 'rocket', source: 'rocket' },
-  { cardId: 'chain', source: 'chain' },
-  { cardId: 'nova', source: 'nova' },
-  { cardId: 'railgun', source: 'railgun' },
-  { cardId: 'lance', source: 'lance' },
-  { cardId: 'airstrike', source: 'airstrike' },
-  { cardId: 'bfg', source: 'bfg' },
-  { cardId: 'orbital-laser', source: 'orbital-laser' },
-  // proximity mines only score against moving targets
-  { cardId: 'mines', source: 'mines' },
-]
+const diagEnemyHp = ref<number>(100)
+const diagCannons = ref<number>(1)
+const diagWatchSpeed = ref<number>(16)
+/** uniform single-HP wave vs a seeded mix of real archetypes */
+const diagEnemyMix = ref(false)
+/** mixed mode: roster HP multiplier (models later, tankier waves) */
+const diagMixScale = ref<number>(1)
+const DIAG_MIX_SCALES = [1, 4, 16] as const
+const isDiagnosing = ref(false)
+const diagStatus = ref('')
+const diagWatchLabel = ref('')
+const diagRows = ref<Array<DpsRow>>([])
+const synergyRows = ref<Array<SynergyRow>>([])
+/** one entry per swept HP, in DIAG_HP_SWEEP order — drives the stacked-column tables */
+const multiWeaponResults = ref<Array<DpsDiagnosticResult>>([])
+const multiSynergyResults = ref<Array<SynergyDiagnosticResult>>([])
+const diagMeta = ref<{
+  enemyHp: number
+  seed: number
+  durationMs: number
+  cannonCount: number
+} | null>(null)
 
-const BENCHMARK_WINDOW_MS = 45_000
-const isBenchmarking = ref(false)
-const benchmarkStatus = ref('')
-const benchmarkRows = ref<Array<BenchmarkRow>>([])
-
-function sleep({ ms }: { ms: number }): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve()
-    }, ms)
-  })
-}
-
-/** configure + fast-forward are both synchronous bus calls — no timers, no throttling */
-function measure({ cardId, tier }: { cardId: string; tier: number }): number | null {
-  cardStacks.value = { [cardId]: tier }
-  gameEventBus.emit({
-    event: 'sandbox-configure',
-    payload: {
-      stats: buildSandboxStats(),
-      cardStacks: { ...cardStacks.value },
-      layout: {
-        formation: dummyFormation.value,
-        spread: dummySpread.value / 100,
-        isMoving: dummiesMoving.value,
-        // the salvo row measures the 'main' source — the gun must fire here
-        isMainGunEnabled: true,
-        // benchmarks need steady targets
-        dummyHp: null,
-      },
-    },
-  })
-  gameEventBus.emit({ event: 'sandbox-fastforward', payload: { gameMs: BENCHMARK_WINDOW_MS } })
-  if (elapsedMs.value < BENCHMARK_WINDOW_MS) {
+/** stack each HP's weapon DPS into one row per weapon: groups[hpIndex] = [dps per tier] */
+const multiWeaponTable = computed(() => {
+  const results = multiWeaponResults.value
+  if (results.length === 0) {
     return null
   }
-  const source = BENCHMARK_TARGETS.find((target) => target.cardId === cardId)?.source ?? cardId
-  const entry = statsEntries.value.find((candidate) => candidate.source === source)
-  return entry?.dps ?? 0
+  return {
+    hps: results.map((result) => result.enemyHp),
+    tiers: results[0].tiers,
+    rows: results[0].rows.map((row, rowIndex) => ({
+      name: row.name,
+      groups: results.map((result) => result.rows[rowIndex].cells.map((cell) => cell.dps)),
+    })),
+  }
+})
+
+/** same idea for synergies, stacking the Δ-DPS-over-parents for each HP */
+const multiSynergyTable = computed(() => {
+  const results = multiSynergyResults.value
+  if (results.length === 0) {
+    return null
+  }
+  return {
+    hps: results.map((result) => result.enemyHp),
+    tiers: results[0].tiers,
+    rows: results[0].rows.map((row, rowIndex) => ({
+      name: row.name,
+      requires: row.requires.replace(/ ★2/g, ''),
+      groups: results.map((result) => result.rows[rowIndex].cells.map((cell) => cell.deltaDps)),
+    })),
+  }
+})
+
+function setDiagHp({ hp }: { hp: number }): void {
+  diagEnemyHp.value = hp
+}
+function setDiagCannons({ count }: { count: number }): void {
+  diagCannons.value = count
+}
+function setWatchSpeed({ speed }: { speed: number }): void {
+  diagWatchSpeed.value = speed
+}
+function setEnemyMix({ mixed }: { mixed: boolean }): void {
+  diagEnemyMix.value = mixed
+}
+function setMixScale({ scale }: { scale: number }): void {
+  diagMixScale.value = scale
 }
 
-async function runBenchmark(): Promise<void> {
-  if (isBenchmarking.value === true) {
+/** shared driver for the weapon sweep — fast (silent, instant) or watch (live, fast playback) */
+async function runDiagnostic({
+  mode,
+}: {
+  mode: 'fast' | 'watch'
+}): Promise<DpsDiagnosticResult | null> {
+  if (isDiagnosing.value === true) {
+    return null
+  }
+  isDiagnosing.value = true
+  diagRows.value = []
+  synergyRows.value = []
+  multiWeaponResults.value = []
+  multiSynergyResults.value = []
+  diagStatus.value = 'Warming up…'
+  diagWatchLabel.value = ''
+  treePreset.value = 'none'
+  cardStacks.value = {}
+  await new Promise((resolve) => setTimeout(resolve, 600))
+
+  let result: DpsDiagnosticResult | null = null
+  try {
+    result = await runDpsDiagnostic({
+      enemyHp: diagEnemyHp.value,
+      seed: DIAG_SEED,
+      durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
+      cannonCount: diagCannons.value,
+      tiers: DIAG_TIERS,
+      enemyMix: diagEnemyMix.value,
+      mixHpScale: diagMixScale.value,
+      mode,
+      watchSpeed: diagWatchSpeed.value,
+      onProgress: ({ done, total, label }) => {
+        diagStatus.value = `${label} (${done}/${total})`
+      },
+      onMeasureStart: ({ name, tier, mainGunFiring }) => {
+        diagWatchLabel.value = `${name} ★${tier}${mainGunFiring === true ? '' : ' · main cannon silenced'}`
+      },
+    })
+    diagRows.value = result.rows
+    diagMeta.value = {
+      enemyHp: result.enemyHp,
+      seed: result.seed,
+      durationMs: result.durationMs,
+      cannonCount: result.cannonCount,
+    }
+    diagStatus.value = 'Done'
+  } catch (error) {
+    diagStatus.value = `Failed — ${String(error)}`
+  } finally {
+    isDiagnosing.value = false
+    diagWatchLabel.value = ''
+    cardStacks.value = {}
+    restartNow()
+  }
+  return result
+}
+
+async function runSynergies({
+  mode,
+}: {
+  mode: 'fast' | 'watch'
+}): Promise<SynergyDiagnosticResult | null> {
+  if (isDiagnosing.value === true) {
+    return null
+  }
+  isDiagnosing.value = true
+  diagRows.value = []
+  synergyRows.value = []
+  multiWeaponResults.value = []
+  multiSynergyResults.value = []
+  diagStatus.value = 'Warming up…'
+  diagWatchLabel.value = ''
+  treePreset.value = 'none'
+  cardStacks.value = {}
+  await new Promise((resolve) => setTimeout(resolve, 600))
+
+  let result: SynergyDiagnosticResult | null = null
+  try {
+    result = await runSynergyDiagnostic({
+      enemyHp: diagEnemyHp.value,
+      seed: DIAG_SEED,
+      durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
+      cannonCount: diagCannons.value,
+      tiers: DIAG_TIERS,
+      enemyMix: diagEnemyMix.value,
+      mixHpScale: diagMixScale.value,
+      mode,
+      watchSpeed: diagWatchSpeed.value,
+      onProgress: ({ done, total, label }) => {
+        diagStatus.value = `${label} (${done}/${total})`
+      },
+      onMeasureStart: ({ name, tier, mainGunFiring }) => {
+        diagWatchLabel.value =
+          tier === 0
+            ? `${name} — baseline (tactic off)`
+            : `${name} ★${tier}${mainGunFiring === true ? '' : ' · main cannon silenced'}`
+      },
+    })
+    synergyRows.value = result.rows
+    diagMeta.value = {
+      enemyHp: result.enemyHp,
+      seed: result.seed,
+      durationMs: result.durationMs,
+      cannonCount: result.cannonCount,
+    }
+    diagStatus.value = 'Done'
+  } catch (error) {
+    diagStatus.value = `Failed — ${String(error)}`
+  } finally {
+    isDiagnosing.value = false
+    diagWatchLabel.value = ''
+    cardStacks.value = {}
+    restartNow()
+  }
+  return result
+}
+
+/** one-click sweep: run the chosen kind against every HP in DIAG_HP_SWEEP, back to
+ * back, stacking the columns into a single table (always the fast, silent mode) */
+async function runHpSweep({ kind }: { kind: 'weapons' | 'synergies' }): Promise<void> {
+  if (isDiagnosing.value === true) {
     return
   }
-  isBenchmarking.value = true
-  benchmarkRows.value = []
+  isDiagnosing.value = true
+  diagRows.value = []
+  synergyRows.value = []
+  multiWeaponResults.value = []
+  multiSynergyResults.value = []
+  diagStatus.value = 'Warming up…'
   treePreset.value = 'none'
-
-  // brief initial wait so the sandbox scene exists before configure events fire
-  await sleep({ ms: 600 })
-
-  for (const target of BENCHMARK_TARGETS) {
-    const definition = UPGRADE_DEFINITIONS.find((candidate) => candidate.id === target.cardId)
-    const row: BenchmarkRow = {
-      cardId: target.cardId,
-      name: definition?.name ?? target.cardId,
-      tier1Dps: null,
-      tier5Dps: null,
-    }
-    benchmarkStatus.value = `${row.name}…`
-    row.tier1Dps = measure({ cardId: target.cardId, tier: 1 })
-    row.tier5Dps = measure({ cardId: target.cardId, tier: 5 })
-    benchmarkRows.value = [...benchmarkRows.value, row]
-    if (row.tier1Dps === null && row.tier5Dps === null) {
-      benchmarkStatus.value = 'Aborted — the range scene is not responding'
-      isBenchmarking.value = false
-      return
-    }
-    // yield a frame so the table paints between rows
-    await sleep({ ms: 10 })
-  }
-
-  benchmarkStatus.value = 'Done'
   cardStacks.value = {}
-  restartNow()
-  isBenchmarking.value = false
+  await new Promise((resolve) => setTimeout(resolve, 600))
+
+  try {
+    for (let index = 0; index < DIAG_HP_SWEEP.length; index += 1) {
+      const enemyHp = DIAG_HP_SWEEP[index]
+      const shared = {
+        enemyHp,
+        seed: DIAG_SEED,
+        durationMs: DIAG_DURATION_MS,
+        cannonCount: diagCannons.value,
+        tiers: DIAG_TIERS,
+        enemyMix: diagEnemyMix.value,
+        mixHpScale: diagMixScale.value,
+        mode: 'fast' as const,
+        onProgress: ({ done, total, label }: { done: number; total: number; label: string }) => {
+          diagStatus.value = `${enemyHp} HP (${index + 1}/${DIAG_HP_SWEEP.length}) — ${label} (${done}/${total})`
+        },
+      }
+      if (kind === 'weapons') {
+        const result = await runDpsDiagnostic(shared)
+        multiWeaponResults.value = [...multiWeaponResults.value, result]
+      } else {
+        const result = await runSynergyDiagnostic(shared)
+        multiSynergyResults.value = [...multiSynergyResults.value, result]
+      }
+    }
+    diagMeta.value = {
+      enemyHp: 0,
+      seed: DIAG_SEED,
+      durationMs: DIAG_DURATION_MS,
+      cannonCount: diagCannons.value,
+    }
+    diagStatus.value = 'Done'
+  } catch (error) {
+    diagStatus.value = `Failed — ${String(error)}`
+  } finally {
+    isDiagnosing.value = false
+    cardStacks.value = {}
+    restartNow()
+  }
+}
+
+/** automation hooks: drive the sweeps from a headless browser and read JSON back */
+interface DiagnosticWindow extends Window {
+  __runDpsDiagnostic?: (options?: Partial<DpsDiagnosticConfig>) => Promise<DpsDiagnosticResult>
+  __runSynergyDiagnostic?: (
+    options?: Partial<DpsDiagnosticConfig>,
+  ) => Promise<SynergyDiagnosticResult>
+  __runHpSweep?: (options?: {
+    kind?: 'weapons' | 'synergies'
+    hps?: Array<number>
+    cannonCount?: number
+    durationMs?: number
+    tiers?: Array<number>
+    seed?: number
+    enemyMix?: boolean
+    mixHpScale?: number
+  }) => Promise<Array<DpsDiagnosticResult | SynergyDiagnosticResult>>
+}
+
+function exposeDiagnosticHook(): void {
+  const diagnosticWindow = window as DiagnosticWindow
+  diagnosticWindow.__runDpsDiagnostic = async (options = {}) => {
+    treePreset.value = 'none'
+    cardStacks.value = {}
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    const result = await runDpsDiagnostic({
+      enemyHp: options.enemyHp ?? diagEnemyHp.value,
+      seed: options.seed ?? DIAG_SEED,
+      durationMs: options.durationMs ?? DIAG_DURATION_MS,
+      cannonCount: options.cannonCount ?? diagCannons.value,
+      tiers: options.tiers ?? DIAG_TIERS,
+      enemyMix: options.enemyMix ?? diagEnemyMix.value,
+      mixHpScale: options.mixHpScale ?? diagMixScale.value,
+      mode: options.mode ?? 'fast',
+      watchSpeed: options.watchSpeed ?? diagWatchSpeed.value,
+    })
+    diagRows.value = result.rows
+    return result
+  }
+  diagnosticWindow.__runSynergyDiagnostic = async (options = {}) => {
+    treePreset.value = 'none'
+    cardStacks.value = {}
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    const result = await runSynergyDiagnostic({
+      enemyHp: options.enemyHp ?? diagEnemyHp.value,
+      seed: options.seed ?? DIAG_SEED,
+      durationMs: options.durationMs ?? DIAG_DURATION_MS,
+      cannonCount: options.cannonCount ?? diagCannons.value,
+      tiers: options.tiers ?? DIAG_TIERS,
+      enemyMix: options.enemyMix ?? diagEnemyMix.value,
+      mixHpScale: options.mixHpScale ?? diagMixScale.value,
+      mode: options.mode ?? 'fast',
+      watchSpeed: options.watchSpeed ?? diagWatchSpeed.value,
+    })
+    synergyRows.value = result.rows
+    return result
+  }
+  diagnosticWindow.__runHpSweep = async (options = {}) => {
+    treePreset.value = 'none'
+    cardStacks.value = {}
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    const hps = options.hps ?? [...DIAG_HP_SWEEP]
+    const kind = options.kind ?? 'weapons'
+    const results: Array<DpsDiagnosticResult | SynergyDiagnosticResult> = []
+    for (const enemyHp of hps) {
+      const shared = {
+        enemyHp,
+        seed: options.seed ?? DIAG_SEED,
+        durationMs: options.durationMs ?? DIAG_DURATION_MS,
+        cannonCount: options.cannonCount ?? diagCannons.value,
+        tiers: options.tiers ?? DIAG_TIERS,
+        enemyMix: options.enemyMix ?? diagEnemyMix.value,
+        mixHpScale: options.mixHpScale ?? diagMixScale.value,
+        mode: 'fast' as const,
+      }
+      results.push(
+        kind === 'synergies' ? await runSynergyDiagnostic(shared) : await runDpsDiagnostic(shared),
+      )
+    }
+    if (kind === 'synergies') {
+      multiSynergyResults.value = results as Array<SynergyDiagnosticResult>
+    } else {
+      multiWeaponResults.value = results as Array<DpsDiagnosticResult>
+    }
+    return results
+  }
 }
 
 onMounted(() => {
@@ -350,11 +604,16 @@ onMounted(() => {
       },
     }),
   )
+  exposeDiagnosticHook()
   startGame()
 })
 
 onUnmounted(() => {
   destroyGame()
+  const diagnosticWindow = window as DiagnosticWindow
+  delete diagnosticWindow.__runDpsDiagnostic
+  delete diagnosticWindow.__runSynergyDiagnostic
+  delete diagnosticWindow.__runHpSweep
   for (const unsubscribe of busUnsubscribes) {
     unsubscribe()
   }
@@ -696,37 +955,359 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- ── benchmark ────────────────────────────────────────────── -->
+      <!-- ── dps diagnostic ───────────────────────────────────────── -->
       <div class="flex flex-col gap-1.5">
+        <div class="flex items-center gap-1.5" data-testid="diag-hp">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Target HP
+          </p>
+          <button
+            v-for="option in DIAG_HP_OPTIONS"
+            :key="option"
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              diagEnemyHp === option
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            :disabled="isDiagnosing === true || diagEnemyMix === true"
+            @click="setDiagHp({ hp: option })"
+          >
+            {{ option }}
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1.5" data-testid="diag-enemy-mix">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Enemies
+          </p>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              diagEnemyMix === false
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            :disabled="isDiagnosing === true"
+            @click="setEnemyMix({ mixed: false })"
+          >
+            Uniform
+          </button>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              diagEnemyMix === true
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            :disabled="isDiagnosing === true"
+            @click="setEnemyMix({ mixed: true })"
+          >
+            Mixed
+          </button>
+        </div>
+
+        <div
+          v-if="diagEnemyMix === true"
+          class="flex items-center gap-1.5"
+          data-testid="diag-mix-scale"
+        >
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Mix HP ×
+          </p>
+          <button
+            v-for="option in DIAG_MIX_SCALES"
+            :key="option"
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              diagMixScale === option
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            :disabled="isDiagnosing === true"
+            @click="setMixScale({ scale: option })"
+          >
+            ×{{ option }}
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1.5" data-testid="diag-cannons">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Cannons
+          </p>
+          <button
+            v-for="option in DIAG_CANNON_OPTIONS"
+            :key="option"
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              diagCannons === option
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            :disabled="isDiagnosing === true"
+            @click="setDiagCannons({ count: option })"
+          >
+            {{ option }}
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1.5" data-testid="diag-watch-speed">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Watch ×
+          </p>
+          <button
+            v-for="option in DIAG_WATCH_SPEEDS"
+            :key="option"
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              diagWatchSpeed === option
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            :disabled="isDiagnosing === true"
+            @click="setWatchSpeed({ speed: option })"
+          >
+            ×{{ option }}
+          </button>
+        </div>
+
         <button
           type="button"
           class="cursor-pointer rounded-lg bg-lime-500 px-3 py-2 text-xs font-bold text-slate-950 transition hover:bg-lime-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-          :disabled="isBenchmarking === true"
-          data-testid="run-benchmark"
-          @click="runBenchmark()"
+          :disabled="isDiagnosing === true"
+          data-testid="run-diagnostic"
+          @click="runDiagnostic({ mode: 'fast' })"
         >
-          {{ isBenchmarking === true ? benchmarkStatus : 'Run benchmark (★1 vs ★5)' }}
+          {{
+            isDiagnosing === true ? diagStatus : 'Run DPS diagnostic (every tier · 3 min · seeded)'
+          }}
         </button>
-        <p v-if="isBenchmarking === false && benchmarkStatus !== ''" class="text-xs text-slate-500">
-          {{ benchmarkStatus }}
+        <div class="flex gap-1.5">
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-slate-50 transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+            :disabled="isDiagnosing === true"
+            data-testid="watch-diagnostic"
+            @click="runDiagnostic({ mode: 'watch' })"
+          >
+            ▶ Watch weapons
+          </button>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg bg-fuchsia-600 px-3 py-2 text-xs font-bold text-slate-50 transition hover:bg-fuchsia-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+            :disabled="isDiagnosing === true"
+            data-testid="run-synergies"
+            @click="runSynergies({ mode: 'fast' })"
+          >
+            Synergies
+          </button>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg bg-fuchsia-800 px-3 py-2 text-xs font-bold text-slate-50 transition hover:bg-fuchsia-700 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+            :disabled="isDiagnosing === true"
+            data-testid="watch-synergies"
+            @click="runSynergies({ mode: 'watch' })"
+          >
+            ▶ Watch
+          </button>
+        </div>
+        <div class="flex gap-1.5">
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+            :disabled="isDiagnosing === true"
+            data-testid="sweep-weapons"
+            @click="runHpSweep({ kind: 'weapons' })"
+          >
+            Sweep HP · weapons
+          </button>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-slate-50 transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+            :disabled="isDiagnosing === true"
+            data-testid="sweep-synergies"
+            @click="runHpSweep({ kind: 'synergies' })"
+          >
+            Sweep HP · synergies
+          </button>
+        </div>
+        <p class="text-[10px] text-slate-600">
+          Sweep grades every tier against {{ DIAG_HP_SWEEP.join(' / ') }} HP, columns stacked.
         </p>
-        <table v-if="benchmarkRows.length > 0" class="w-full text-xs" data-testid="benchmark-table">
+        <p v-if="isDiagnosing === false && diagStatus !== ''" class="text-xs text-slate-500">
+          {{ diagStatus }}
+          <span v-if="diagMeta !== null">
+            — {{ diagMeta.enemyHp }} HP · {{ diagMeta.cannonCount }} cannon(s) · seed
+            {{ diagMeta.seed }} · {{ (diagMeta.durationMs / 1000).toFixed(0) }}s each
+          </span>
+        </p>
+
+        <table v-if="diagRows.length > 0" class="w-full text-xs" data-testid="diagnostic-table">
           <thead>
             <tr class="text-left text-slate-500">
               <th class="py-0.5 font-semibold">Weapon</th>
-              <th class="py-0.5 text-right font-semibold">★1</th>
-              <th class="py-0.5 text-right font-semibold">★5</th>
+              <th v-for="tier in DIAG_TIERS" :key="tier" class="py-0.5 text-right font-semibold">
+                ★{{ tier }}
+              </th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in benchmarkRows" :key="row.cardId" class="border-t border-slate-800">
+            <tr v-for="row in diagRows" :key="row.cardId" class="border-t border-slate-800">
               <td class="py-0.5 text-slate-300">{{ row.name }}</td>
-              <td class="py-0.5 text-right font-bold text-slate-100">
-                {{ row.tier1Dps === null ? '—' : row.tier1Dps.toFixed(1) }}
+              <td
+                v-for="cell in row.cells"
+                :key="cell.tier"
+                class="py-0.5 text-right font-bold text-slate-100"
+              >
+                {{ cell.dps.toFixed(1) }}
               </td>
-              <td class="py-0.5 text-right font-bold text-amber-300">
-                {{ row.tier5Dps === null ? '—' : row.tier5Dps.toFixed(1) }}
+            </tr>
+          </tbody>
+        </table>
+
+        <table v-if="synergyRows.length > 0" class="w-full text-xs" data-testid="synergy-table">
+          <caption class="pb-0.5 text-left text-[10px] text-slate-500">
+            Synergy — Δ DPS over its required parents
+          </caption>
+          <thead>
+            <tr class="text-left text-slate-500">
+              <th class="py-0.5 font-semibold">Synergy</th>
+              <th class="py-0.5 font-semibold">Requires</th>
+              <th v-for="tier in DIAG_TIERS" :key="tier" class="py-0.5 text-right font-semibold">
+                ★{{ tier }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in synergyRows" :key="row.cardId" class="border-t border-slate-800">
+              <td class="py-0.5 pr-1 text-slate-300">{{ row.name }}</td>
+              <td class="py-0.5 pr-1 text-[10px] text-slate-500">
+                {{ row.requires.replace(/ ★2/g, '') }}
               </td>
+              <td
+                v-for="cell in row.cells"
+                :key="cell.tier"
+                class="py-0.5 text-right font-bold"
+                :class="cell.deltaDps >= 0 ? 'text-fuchsia-300' : 'text-red-400'"
+              >
+                {{ cell.deltaDps >= 0 ? '+' : '' }}{{ cell.deltaDps.toFixed(1) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- ── stacked HP-sweep: weapons ─────────────────────────── -->
+        <table
+          v-if="multiWeaponTable !== null"
+          class="w-full text-[11px]"
+          data-testid="sweep-weapon-table"
+        >
+          <thead>
+            <tr class="text-slate-400">
+              <th class="py-0.5 text-left font-semibold" rowspan="2">Weapon</th>
+              <th
+                v-for="hp in multiWeaponTable.hps"
+                :key="hp"
+                class="border-l border-slate-800 py-0.5 text-center font-semibold text-amber-300"
+                :colspan="multiWeaponTable.tiers.length"
+              >
+                {{ hp }} HP
+              </th>
+            </tr>
+            <tr class="text-slate-600">
+              <template v-for="hp in multiWeaponTable.hps" :key="hp">
+                <th
+                  v-for="(tier, tierIndex) in multiWeaponTable.tiers"
+                  :key="`${hp}-${tier}`"
+                  class="py-0.5 text-right font-semibold"
+                  :class="tierIndex === 0 ? 'border-l border-slate-800' : ''"
+                >
+                  ★{{ tier }}
+                </th>
+              </template>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="row in multiWeaponTable.rows"
+              :key="row.name"
+              class="border-t border-slate-800"
+            >
+              <td class="py-0.5 pr-1 text-slate-300">{{ row.name }}</td>
+              <template v-for="(group, groupIndex) in row.groups" :key="groupIndex">
+                <td
+                  v-for="(dps, tierIndex) in group"
+                  :key="tierIndex"
+                  class="py-0.5 text-right font-bold text-slate-100"
+                  :class="tierIndex === 0 ? 'border-l border-slate-800' : ''"
+                >
+                  {{ dps.toFixed(1) }}
+                </td>
+              </template>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- ── stacked HP-sweep: synergies ───────────────────────── -->
+        <table
+          v-if="multiSynergyTable !== null"
+          class="w-full text-[11px]"
+          data-testid="sweep-synergy-table"
+        >
+          <caption class="pb-0.5 text-left text-[10px] text-slate-500">
+            Synergy Δ DPS over parents, per target HP
+          </caption>
+          <thead>
+            <tr class="text-slate-400">
+              <th class="py-0.5 text-left font-semibold" rowspan="2">Synergy</th>
+              <th
+                v-for="hp in multiSynergyTable.hps"
+                :key="hp"
+                class="border-l border-slate-800 py-0.5 text-center font-semibold text-amber-300"
+                :colspan="multiSynergyTable.tiers.length"
+              >
+                {{ hp }} HP
+              </th>
+            </tr>
+            <tr class="text-slate-600">
+              <template v-for="hp in multiSynergyTable.hps" :key="hp">
+                <th
+                  v-for="(tier, tierIndex) in multiSynergyTable.tiers"
+                  :key="`${hp}-${tier}`"
+                  class="py-0.5 text-right font-semibold"
+                  :class="tierIndex === 0 ? 'border-l border-slate-800' : ''"
+                >
+                  ★{{ tier }}
+                </th>
+              </template>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="row in multiSynergyTable.rows"
+              :key="row.name"
+              class="border-t border-slate-800"
+            >
+              <td class="py-0.5 pr-1 text-slate-300" :title="row.requires">{{ row.name }}</td>
+              <template v-for="(group, groupIndex) in row.groups" :key="groupIndex">
+                <td
+                  v-for="(delta, tierIndex) in group"
+                  :key="tierIndex"
+                  class="py-0.5 text-right font-bold"
+                  :class="[
+                    tierIndex === 0 ? 'border-l border-slate-800' : '',
+                    delta >= 0 ? 'text-fuchsia-300' : 'text-red-400',
+                  ]"
+                >
+                  {{ delta >= 0 ? '+' : '' }}{{ delta.toFixed(1) }}
+                </td>
+              </template>
             </tr>
           </tbody>
         </table>
@@ -735,6 +1316,13 @@ onUnmounted(() => {
 
     <div class="relative flex-1">
       <div ref="gameContainer" class="h-full w-full overflow-hidden" />
+      <div
+        v-if="diagWatchLabel !== ''"
+        class="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-sky-500/50 bg-slate-950/85 px-4 py-1.5 text-sm font-bold text-sky-200 shadow-lg"
+        data-testid="watch-label"
+      >
+        Now testing: {{ diagWatchLabel }}
+      </div>
     </div>
 
     <div

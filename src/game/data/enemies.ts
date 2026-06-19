@@ -148,6 +148,23 @@ export const ENEMY_DEFINITIONS: Record<EnemyKind, EnemyDefinition> = {
   },
 } as const
 
+/**
+ * Training-range "mixed" benchmark roster: a seeded blend of real archetypes,
+ * spawnable regardless of wave, so a weapon is graded against the natural spread
+ * of chaff, bricks, shielded wardens, self-healing menders, and a heavy elite.
+ * Weights echo the live spawn table; the elite supplies the high-HP tail.
+ */
+export const SANDBOX_MIX: Array<{ kind: EnemyKind; weight: number }> = [
+  { kind: 'drifter', weight: 10 },
+  { kind: 'speeder', weight: 6 },
+  { kind: 'dancer', weight: 4 },
+  { kind: 'splitter', weight: 4 },
+  { kind: 'warden', weight: 3 },
+  { kind: 'tank', weight: 3 },
+  { kind: 'mender', weight: 2 },
+  { kind: 'elite', weight: 1 },
+]
+
 export function listSpawnableDefinitions({ wave }: { wave: number }): Array<EnemyDefinition> {
   return Object.values(ENEMY_DEFINITIONS).filter(
     (definition) => definition.spawnWeight > 0 && wave >= definition.minWave,

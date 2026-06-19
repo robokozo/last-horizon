@@ -151,8 +151,12 @@ export interface SandboxStatsEntry {
 }
 
 export interface SandboxLayout {
-  /** 'field' = rows of targets, 'boss' = one big single target */
-  formation: 'field' | 'boss'
+  /**
+   * 'field' = static rows of targets, 'boss' = one big single target,
+   * 'stream' = a never-ending wave of uniform, non-damaging invaders that flow
+   * in and die — the honest DPS benchmark target.
+   */
+  formation: 'field' | 'boss' | 'stream'
   /** 1 = default spacing; lower packs the dummies tighter */
   spread: number
   /** dummies patrol side to side on a sine, with honest velocity for intercepts */
@@ -161,6 +165,20 @@ export interface SandboxLayout {
   isMainGunEnabled: boolean
   /** dummy hit points; null = invincible. Finite dummies die and respawn, for testing kill-triggered effects */
   dummyHp: number | null
+  /**
+   * 'stream' only: seeds the spawn RNG so every weapon faces the identical swarm.
+   * The stream's positions and timing derive from this alone, independent of any
+   * weapon-side randomness (crits, spread), so runs stay comparable.
+   */
+  seed?: number
+  /**
+   * 'stream' only: when true the wave is a seeded mix of real enemy archetypes
+   * (chaff, tanks, wardens, elites…) instead of one uniform dummy — a realistic
+   * blend of low and high HP. `dummyHp` is ignored; `mixHpScale` scales the roster.
+   */
+  enemyMix?: boolean
+  /** multiplies every mixed enemy's base HP, to model later waves (default 1) */
+  mixHpScale?: number
 }
 
 export interface GameSceneData {

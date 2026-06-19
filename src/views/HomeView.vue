@@ -5,12 +5,44 @@ import SaveTransfer from '@/components/SaveTransfer.vue'
 import SynergyGlossary from '@/components/SynergyGlossary.vue'
 import { damageNumbersEnabled, screenShakeEnabled } from '@/game/settings'
 import { soundEngine } from '@/game/sound'
+import { SKILL_NODES } from '@/skills/skillTree'
 import { useMetaStore } from '@/stores/metaStore'
 
 const metaStore = useMetaStore()
 
 const isGlossaryOpen = ref(false)
 const isConfirmingReset = ref(false)
+
+// DEV ONLY — gated to the dev server (import.meta.env.DEV is false in prod, so the
+// panel never renders for real players). Temporary helpers for testing the prestige
+// flow without grinding. Remove when done.
+const isDev = import.meta.env.DEV
+function grantDevStardust(): void {
+  metaStore.stardust += 1_000_000
+}
+function grantDevPrestige(): void {
+  // jump straight to a higher prestige level so the extra cannons / wider arena
+  // can be checked in a run without buying out and prestiging the whole board
+  metaStore.prestigeLevel += 1
+}
+function fillDevBoard(): void {
+  // grant exactly what the unbought nodes cost, then buy the board the real way
+  // (respects adjacency, keeps treeSpent correct) so stardust nets out unchanged
+  const remainingCost = SKILL_NODES.filter(
+    (node) => metaStore.unlockedNodeIdSet.has(node.id) === false,
+  ).reduce((sum, node) => sum + node.cost, 0)
+  metaStore.stardust += remainingCost
+  let unlockedAny = true
+  while (unlockedAny === true) {
+    unlockedAny = false
+    // each pass reads a fresh available-set (the getter recomputes as nodes unlock)
+    for (const nodeId of metaStore.availableNodeIdSet) {
+      if (metaStore.unlockNode({ nodeId }) === true) {
+        unlockedAny = true
+      }
+    }
+  }
+}
 
 function onResetClick(): void {
   if (isConfirmingReset.value === false) {
@@ -234,6 +266,34 @@ function toggleMusic(): void {
         </div>
 
         <SaveTransfer />
+
+        <div v-if="isDev === true" class="flex flex-col gap-2 border-t border-dashed border-amber-500/40 pt-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="cursor-pointer rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20"
+              @click="grantDevStardust()"
+            >
+              DEV: +1,000,000 stardust
+            </button>
+            <button
+              type="button"
+              class="cursor-pointer rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20"
+              @click="grantDevPrestige()"
+            >
+              DEV: +1 prestige (now {{ metaStore.prestigeLevel }})
+            </button>
+            <button
+              type="button"
+              class="cursor-pointer rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20"
+              :disabled="metaStore.isParagonComplete === true"
+              @click="fillDevBoard()"
+            >
+              DEV: fill paragon board
+            </button>
+          </div>
+          <span class="text-[10px] text-slate-500">localhost only — for testing prestige</span>
+        </div>
 
         <div class="flex items-center gap-3 border-t border-slate-800 pt-3">
           <button

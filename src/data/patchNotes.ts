@@ -21,6 +21,49 @@ export interface PatchEntry {
  */
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
+    date: '2026-06-18',
+    title: 'Saboteurs',
+    blurb: 'Repair drones learn to cut the enemy’s power, plus a balance pass across the board.',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'Nanite synergies now jam enemy repair: while you own Mitosis, Auto-Fabricators, or Target Uplink, your robots shut down all enemy healing — menders stop mending and regenerating elites stop knitting themselves back together. The hard counter to healing-heavy fights, especially bosses with mender escorts.',
+      },
+      {
+        kind: 'balance',
+        text: 'Mitosis fixed at max rank: ★5 was quietly weaker than ★4 because the longer leaps scattered the swarm too thin. Leap growth is gentler now and every rank raises the live-swarm ceiling, so ★5 sustains the biggest cascade — exactly what it should be against weak, packed waves.',
+      },
+      {
+        kind: 'balance',
+        text: 'Wildfire is no longer a max-rank-only trap: the blaze now spreads far enough to chain from the very first rank (base radius 90 → 130), so early points actually catch fire.',
+      },
+      {
+        kind: 'balance',
+        text: 'Balloon Mines hit harder and reach wider — faster deployment, more mines per drop, a higher active cap, bigger blasts, and a more forgiving trigger, so your banked minefield earns its keep.',
+      },
+      {
+        kind: 'balance',
+        text: 'Orbital Laser scales much harder per rank in both damage and blast radius, turning it into a genuine tank- and boss-killer at high ranks instead of fizzling against chaff.',
+      },
+      {
+        kind: 'balance',
+        text: 'Devourer Swarm opens stronger: a bigger starting nanite budget and faster drain, so it is not a dead early pick before the leaps start to snowball.',
+      },
+      {
+        kind: 'balance',
+        text: 'Conditional synergies pay off bigger when they fire: Overwatch (more bonus through frozen invaders), Glassed Sky (hotter molten zone), Thermal Shock (bigger status detonation), and Static Discharge (more bolt links per affliction).',
+      },
+      {
+        kind: 'new',
+        text: 'The BFG discharge now blooms a green portal of light over every invader it washes over — you can see exactly what the blast caught.',
+      },
+      {
+        kind: 'new',
+        text: 'Training range: a one-click DPS diagnostic charts every weapon and synergy across all five ranks against a seeded, never-ending wave. Grade against a uniform target HP or a realistic mixed swarm, sweep low/medium/high HP in one pass, and watch any run play out at high speed.',
+      },
+    ],
+  },
+  {
     date: '2026-06-13',
     title: 'Hand-Off',
     blurb: 'Carry your save across the room with a camera.',

@@ -24,6 +24,7 @@ import {
   MINES,
   NOVA,
   ORBITAL_LASER,
+  SANDBOX_STREAM,
   SHATTERPOINT,
   STORM_FRONT,
   SALVO,
@@ -38,6 +39,7 @@ import {
   ENEMY_DEFINITIONS,
   listSpawnableDefinitions,
   pickWeightedDefinition,
+  SANDBOX_MIX,
   type EnemyDefinition,
 } from '@/game/data/enemies'
 import {
@@ -48,6 +50,7 @@ import {
   rollUpgradeChoices,
 } from '@/game/data/upgrades'
 import { gameEventBus } from '@/game/eventBus'
+import { createSeededRng } from '@/game/seededRng'
 import { damageNumbersEnabled, screenShakeEnabled } from '@/game/settings'
 import { soundEngine } from '@/game/sound'
 import type { GameSceneData, RunStats, SandboxLayout } from '@/game/types'
@@ -430,6 +433,18 @@ export class GameScene extends Phaser.Scene {
     isMainGunEnabled: true,
     dummyHp: null,
   }
+  /** seeded spawn RNG for the 'stream' formation — only the spawner touches it, so
+   * every weapon faces the identical swarm regardless of its own random rolls */
+  private sandboxRng: () => number = createSeededRng({ seed: 1 })
+  /** seeded crit RNG for the range — keeps a benchmark reproducible run to run
+   * instead of jittering on live crit luck (a separate stream from the spawner) */
+  private sandboxCombatRng: () => number = createSeededRng({ seed: 2 })
+  private sandboxStreamAccumulatorMs = 0
+  /** gap until the next stream spawn, jittered by the seeded RNG */
+  private sandboxStreamNextGapMs = 0
+  /** fast-forward benchmarks skip every cosmetic spawn — no render work, and no
+   * leak of effect objects whose tween-driven cleanup can't run mid-blast */
+  private suppressVisuals = false
   private damageBySource = new Map<string, number>()
   private sandboxStatsAccumulatorMs = 0
   private floatingTextCount = 0
@@ -488,6 +503,7 @@ export class GameScene extends Phaser.Scene {
       isMainGunEnabled: true,
       dummyHp: null,
     }
+    this.resetSandboxStream()
     if (data.initialCardStacks !== undefined) {
       for (const [cardId, stacks] of Object.entries(data.initialCardStacks)) {
         if (stacks > 0) {
@@ -561,13 +577,17 @@ export class GameScene extends Phaser.Scene {
           if (this.isSandbox === false) {
             return
           }
+          // a synchronous blast can't render, and its cosmetic objects' tween
+          // cleanup never ticks mid-blast — so skip every cosmetic entirely
           soundEngine.setSuppressed({ isSuppressed: true })
+          this.suppressVisuals = true
           let remainingMs = payload.gameMs
           while (remainingMs > 0) {
             const stepMs = Math.min(remainingMs, MAX_SIM_STEP_MS)
             this.simulateStep({ delta: stepMs })
             remainingMs -= stepMs
           }
+          this.suppressVisuals = false
           soundEngine.setSuppressed({ isSuppressed: false })
           this.emitSandboxStats()
         },
@@ -652,6 +672,15 @@ export class GameScene extends Phaser.Scene {
     cardStacks: Record<string, number>
     layout: SandboxLayout
   }): void {
+    // a previous fast-forward leaves cosmetic objects mid-tween whose cleanup
+    // never ran (the blast blocks the loop). Destroy whatever the leftover tweens
+    // are animating, then clear the tweens, so effects can't pile up run to run.
+    this.suppressVisuals = false
+    for (const tween of this.tweens.getTweens()) {
+      for (const target of tween.targets) {
+        ;(target as { destroy?: () => void }).destroy?.()
+      }
+    }
     this.tweens.killAll()
 
     for (const enemy of this.enemies) {
@@ -721,6 +750,7 @@ export class GameScene extends Phaser.Scene {
 
     this.stats = { ...stats }
     this.sandboxLayout = layout
+    this.resetSandboxStream()
     this.upgradeStacks = new Map(Object.entries(cardStacks).filter(([, stacks]) => stacks > 0))
     this.capacitorCharge = 0
     this.surgeRemainingMs = 0
@@ -745,6 +775,11 @@ export class GameScene extends Phaser.Scene {
 
   private spawnTrainingDummies(): void {
     const layout = this.sandboxLayout
+
+    // the stream fills itself from the spawn clock — no static placement
+    if (layout.formation === 'stream') {
+      return
+    }
 
     if (layout.formation === 'boss') {
       this.spawnDummy({
@@ -847,6 +882,80 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** reseed the stream + crit RNGs and clear the clock so the next run is deterministic */
+  private resetSandboxStream(): void {
+    const seed = this.sandboxLayout.seed ?? 1
+    this.sandboxRng = createSeededRng({ seed })
+    // a distinct stream so crit luck never perturbs the swarm (or vice versa)
+    this.sandboxCombatRng = createSeededRng({ seed: (seed ^ 0x9e3779b9) >>> 0 })
+    this.sandboxStreamAccumulatorMs = 0
+    this.sandboxStreamNextGapMs = 0
+  }
+
+  /** crit verdict — seeded in the range for reproducibility, live RNG in a real run */
+  private rollIsCrit(): boolean {
+    const roll = this.isSandbox === true ? this.sandboxCombatRng() : Math.random()
+    return roll < this.stats.critChance
+  }
+
+  /**
+   * The 'stream' benchmark: a never-ending wave of one uniform invader. Positions
+   * and timing come only from the seeded RNG, so every weapon meets the identical
+   * swarm; the invaders deal no damage and grant no xp, so the run never ends and
+   * no level-up offer interrupts the measurement.
+   */
+  private tickSandboxStream({ delta }: { delta: number }): void {
+    this.sandboxStreamAccumulatorMs += delta
+    while (this.sandboxStreamAccumulatorMs >= this.sandboxStreamNextGapMs) {
+      this.sandboxStreamAccumulatorMs -= this.sandboxStreamNextGapMs
+      this.spawnStreamInvader()
+      // jitter the next gap with the seeded RNG — random cadence, but reproducible
+      const jitter = 1 + (this.sandboxRng() * 2 - 1) * SANDBOX_STREAM.intervalJitter
+      this.sandboxStreamNextGapMs = SANDBOX_STREAM.baseSpawnIntervalMs * jitter
+    }
+  }
+
+  /** seeded weighted draw from the mixed roster — only the spawn RNG is consumed */
+  private pickMixDefinition(): EnemyDefinition {
+    const totalWeight = SANDBOX_MIX.reduce((sum, entry) => sum + entry.weight, 0)
+    let cursor = this.sandboxRng() * totalWeight
+    for (const entry of SANDBOX_MIX) {
+      cursor -= entry.weight
+      if (cursor < 0) {
+        return ENEMY_DEFINITIONS[entry.kind]
+      }
+    }
+    return ENEMY_DEFINITIONS[SANDBOX_MIX[0].kind]
+  }
+
+  private spawnStreamInvader(): void {
+    // Pick the archetype FIRST (consistent RNG order), then position + heading —
+    // all from the seeded spawn RNG, so every weapon meets the identical swarm.
+    let definition: EnemyDefinition
+    if (this.sandboxLayout.enemyMix === true) {
+      // a realistic blend of archetypes; mixHpScale models later, tankier waves
+      const base = this.pickMixDefinition()
+      const scale = this.sandboxLayout.mixHpScale ?? 1
+      definition = { ...base, hp: base.hp * scale }
+    } else {
+      // one uniform archetype: drifter visuals/pace at the caller's chosen HP
+      const hp = this.sandboxLayout.dummyHp ?? SANDBOX_STREAM.defaultHp
+      definition = {
+        ...ENEMY_DEFINITIONS.drifter,
+        hp,
+        speed: SANDBOX_STREAM.enemySpeed,
+        radius: SANDBOX_STREAM.enemyRadius,
+      }
+    }
+    // spawnEnemy zeroes contact damage + xp in sandbox; its own Math.random is
+    // only consumed for cosmetics, never for these supplied coordinates
+    this.spawnEnemy({
+      definition,
+      spawnX: this.sandboxRng() * this.arenaWidth,
+      impactX: this.sandboxRng() * this.arenaWidth,
+    })
+  }
+
   private canSimulate(): boolean {
     return this.isRunOver === false && this.hasActiveOffer === false
   }
@@ -866,6 +975,8 @@ export class GameScene extends Phaser.Scene {
     if (this.isSandbox === false) {
       this.advanceWaveClock({ delta })
       this.spawnFromClock({ delta })
+    } else if (this.sandboxLayout.formation === 'stream') {
+      this.tickSandboxStream({ delta })
     } else {
       this.tickDummyRespawns({ delta })
     }
@@ -1069,8 +1180,11 @@ export class GameScene extends Phaser.Scene {
       hp,
       maxHp: hp,
       speed,
-      contactDamage: definition.contactDamage,
-      xpValue: definition.xpValue,
+      // in the range nothing harms the city and nothing grants xp, so a run never
+      // ends early and no level-up offer interrupts a measurement — this holds for
+      // every spawn path (mixed roster, splitter shardlings, …), not just the dummy
+      contactDamage: this.isSandbox === true ? 0 : definition.contactDamage,
+      xpValue: this.isSandbox === true ? 0 : definition.xpValue,
       radius: definition.radius,
       directionX: Math.cos(fallAngle),
       directionY: Math.sin(fallAngle),
@@ -1413,7 +1527,7 @@ export class GameScene extends Phaser.Scene {
       if (index === 0) {
         cannon.barrelImage.setRotation(angle)
       }
-      const isCrit = Math.random() < this.stats.critChance
+      const isCrit = this.rollIsCrit()
       // salvo: only the first shot of a volley hits at full strength
       const salvoFactor = index === 0 ? 1 : SALVO.extraShotDamageFactor
       const baseDamage = this.stats.damage * salvoFactor
@@ -1698,8 +1812,12 @@ export class GameScene extends Phaser.Scene {
         const liveSwarmCount =
           this.swarms.filter((candidate) => candidate.isDead === false).length +
           spawnedSwarms.length
+        // ★5 sustains a bigger cascade than ★4: the ceiling rises with the rank
+        const swarmCap =
+          DEVOURER.maxActiveSwarms +
+          SYNERGIES.mitosis.extraMaxSwarmsPerLevel * Math.max(0, this.stats.mitosisLevel - 1)
         const splitCount =
-          this.stats.mitosisLevel > 0 && liveSwarmCount < DEVOURER.maxActiveSwarms
+          this.stats.mitosisLevel > 0 && liveSwarmCount < swarmCap
             ? SYNERGIES.mitosis.splitCount
             : 1
         const nextHosts = this.findLeapTargets({
@@ -1772,6 +1890,9 @@ export class GameScene extends Phaser.Scene {
     toX: number
     toY: number
   }): void {
+    if (this.suppressVisuals === true) {
+      return
+    }
     const dot = this.add.circle(fromX, fromY, 4, 0x4ade80, 0.95).setDepth(DEPTHS.effects)
     this.tweens.add({
       targets: dot,
@@ -1997,6 +2118,9 @@ export class GameScene extends Phaser.Scene {
 
   /** a fleck of fire drifting up off a burning invader */
   private spawnEmber({ enemy }: { enemy: EnemyUnit }): void {
+    if (this.suppressVisuals === true) {
+      return
+    }
     const ember = this.add
       .circle(
         enemy.image.x + (Math.random() * 2 - 1) * enemy.radius * 0.7,
@@ -2610,6 +2734,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawLightningBolt({ points }: { points: Array<{ x: number; y: number }> }): void {
+    if (this.suppressVisuals === true) {
+      return
+    }
     soundEngine.play({ name: 'zap' })
     const level = Math.max(1, this.stats.chainLevel)
     const graphics = this.add.graphics().setDepth(DEPTHS.effects)
@@ -3343,31 +3470,33 @@ export class GameScene extends Phaser.Scene {
     source: string
   }): void {
     soundEngine.play({ name: 'explosion' })
-    const fireball = this.add.circle(x, y, 10, 0xfb923c, 0.7).setDepth(DEPTHS.effects)
-    const shockRing = this.add
-      .circle(x, y, 10)
-      .setStrokeStyle(3, 0xfdba74, 0.9)
-      .setDepth(DEPTHS.effects)
-    this.tweens.add({
-      targets: fireball,
-      radius: blastRadius * 0.7,
-      alpha: 0,
-      duration: 300,
-      ease: 'Cubic.easeOut',
-      onComplete: () => {
-        fireball.destroy()
-      },
-    })
-    this.tweens.add({
-      targets: shockRing,
-      radius: blastRadius,
-      alpha: 0,
-      duration: 360,
-      ease: 'Cubic.easeOut',
-      onComplete: () => {
-        shockRing.destroy()
-      },
-    })
+    if (this.suppressVisuals === false) {
+      const fireball = this.add.circle(x, y, 10, 0xfb923c, 0.7).setDepth(DEPTHS.effects)
+      const shockRing = this.add
+        .circle(x, y, 10)
+        .setStrokeStyle(3, 0xfdba74, 0.9)
+        .setDepth(DEPTHS.effects)
+      this.tweens.add({
+        targets: fireball,
+        radius: blastRadius * 0.7,
+        alpha: 0,
+        duration: 300,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          fireball.destroy()
+        },
+      })
+      this.tweens.add({
+        targets: shockRing,
+        radius: blastRadius,
+        alpha: 0,
+        duration: 360,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          shockRing.destroy()
+        },
+      })
+    }
 
     for (const enemy of this.enemies) {
       if (enemy.isDead === true) {
@@ -3378,6 +3507,49 @@ export class GameScene extends Phaser.Scene {
         this.damageEnemy({ enemy, amount: damage, source })
       }
     }
+  }
+
+  /** doom-style green BFG hit: a portal of light blooms over each struck invader */
+  private spawnBfgPortal({ x, y, radius }: { x: number; y: number; radius: number }): void {
+    if (this.suppressVisuals === true) {
+      return
+    }
+    const disc = this.add.circle(x, y, radius * 0.5, 0x22c55e, 0.5).setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: disc,
+      scale: 1.8,
+      alpha: 0,
+      duration: 460,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        disc.destroy()
+      },
+    })
+    const ring = this.add
+      .circle(x, y, radius * 0.55)
+      .setStrokeStyle(3, 0x86efac, 0.95)
+      .setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: ring,
+      scale: 2.1,
+      alpha: 0,
+      duration: 540,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        ring.destroy()
+      },
+    })
+    const core = this.add.circle(x, y, radius * 0.22, 0xecfccb, 0.9).setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: core,
+      scale: 2.4,
+      alpha: 0,
+      duration: 320,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        core.destroy()
+      },
+    })
   }
 
   // ── bfg ────────────────────────────────────────────────────────────
@@ -3442,6 +3614,8 @@ export class GameScene extends Phaser.Scene {
       if (enemy.isDead === true) {
         continue
       }
+      // green portal blooms over every invader the discharge washes over
+      this.spawnBfgPortal({ x: enemy.image.x, y: enemy.image.y, radius: enemy.radius + 16 })
       this.damageEnemy({ enemy, amount: bfgDamage, source: 'bfg' })
     }
 
@@ -3716,19 +3890,21 @@ export class GameScene extends Phaser.Scene {
     const echoSpan =
       Phaser.Math.DegToRad(LANCE.sweepArcDegBase + LANCE.sweepArcDegPerLevel * (level - 1)) *
       SYNERGIES.refraction.arcFactor
-    const echoFlare = this.add
-      .circle(cloud.image.x, cloud.image.y, 8, 0xfefce8, 0.9)
-      .setDepth(DEPTHS.effects)
-    this.tweens.add({
-      targets: echoFlare,
-      radius: 18,
-      alpha: 0,
-      duration: 300,
-      ease: 'Cubic.easeOut',
-      onComplete: () => {
-        echoFlare.destroy()
-      },
-    })
+    if (this.suppressVisuals === false) {
+      const echoFlare = this.add
+        .circle(cloud.image.x, cloud.image.y, 8, 0xfefce8, 0.9)
+        .setDepth(DEPTHS.effects)
+      this.tweens.add({
+        targets: echoFlare,
+        radius: 18,
+        alpha: 0,
+        duration: 300,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          echoFlare.destroy()
+        },
+      })
+    }
     this.sweeps.push({
       originX: cloud.image.x,
       originY: cloud.image.y,
@@ -4268,8 +4444,13 @@ export class GameScene extends Phaser.Scene {
         continue
       }
 
-      // regenerating elites knit themselves back together
-      if (enemy.affix === 'regen' && enemy.hp < enemy.maxHp) {
+      // regenerating elites knit themselves back together — unless nanite robots
+      // have sabotaged enemy repair
+      if (
+        enemy.affix === 'regen' &&
+        enemy.hp < enemy.maxHp &&
+        this.isEnemyHealingDisabled() === false
+      ) {
         enemy.hp = Math.min(
           enemy.maxHp,
           enemy.hp + enemy.maxHp * ENEMY_AURAS.eliteRegenFractionPerSec * (delta / 1_000),
@@ -4315,8 +4496,22 @@ export class GameScene extends Phaser.Scene {
     this.bossBolts.push({ image, velocityY: BOSS.boltSpeedPxPerSec, isDead: false })
   }
 
+  /**
+   * Nanite robots double as saboteurs: any Nanite Swarm synergy (Mitosis,
+   * Auto-Fabricators, Target Uplink) jams enemy repair systems, shutting off
+   * mender pulses and elite regeneration for the whole field.
+   */
+  private isEnemyHealingDisabled(): boolean {
+    return (
+      this.stats.mitosisLevel > 0 || this.stats.fabricatorLevel > 0 || this.stats.uplinkLevel > 0
+    )
+  }
+
   /** mender aura: heal every other invader inside the radius for a slice of max hp */
   private pulseMenderHeal({ mender }: { mender: EnemyUnit }): void {
+    if (this.isEnemyHealingDisabled() === true) {
+      return
+    }
     let didHeal = false
     for (const other of this.enemies) {
       if (other.isDead === true || other === mender || other.hp >= other.maxHp) {
@@ -4330,7 +4525,7 @@ export class GameScene extends Phaser.Scene {
       other.hp = Math.min(other.maxHp, other.hp + other.maxHp * ENEMY_AURAS.menderHealFraction)
       didHeal = true
     }
-    if (didHeal === true) {
+    if (didHeal === true && this.suppressVisuals === false) {
       const ring = this.add
         .circle(mender.image.x, mender.image.y, mender.radius)
         .setStrokeStyle(2, 0x4ade80, 0.8)
@@ -4351,6 +4546,9 @@ export class GameScene extends Phaser.Scene {
   // ── death effects and exhaust trails ───────────────────────────────
 
   private spawnDeathBurst({ enemy }: { enemy: EnemyUnit }): void {
+    if (this.suppressVisuals === true) {
+      return
+    }
     const colors: Record<string, number> = {
       drifter: 0xef4444,
       speeder: 0xfacc15,
@@ -4456,6 +4654,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnExhaustPuff({ x, y, color }: { x: number; y: number; color: number }): void {
+    if (this.suppressVisuals === true) {
+      return
+    }
     const puff = this.add.circle(x, y, 2 + Math.random() * 2, color, 0.5).setDepth(DEPTHS.clouds)
     this.tweens.add({
       targets: puff,
@@ -4621,6 +4822,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private emitRepairSparkles({ x, y }: { x: number; y: number }): void {
+    if (this.suppressVisuals === true) {
+      return
+    }
     for (let index = 0; index < 3; index += 1) {
       const sparkle = this.add
         .circle(x + (Math.random() * 2 - 1) * 14, y + Math.random() * 16, 2, 0x4ade80, 0.9)
@@ -4798,7 +5002,7 @@ export class GameScene extends Phaser.Scene {
     let finalAmount = amount
     // crit chance applies to every weapon system, rolled per hit
     let isCrit = isPreRolledCrit
-    if (canCrit === true && Math.random() < this.stats.critChance) {
+    if (canCrit === true && this.rollIsCrit() === true) {
       finalAmount *= this.stats.critMultiplier
       isCrit = true
     }
@@ -4810,16 +5014,24 @@ export class GameScene extends Phaser.Scene {
     if (this.surgeRemainingMs > 0) {
       finalAmount *= 1 + this.stats.surgeDamageBonus
     }
-    this.damageBySource.set(source, (this.damageBySource.get(source) ?? 0) + finalAmount)
+    // the range scores effective damage — capped at the target's remaining HP —
+    // so a big overkill hit can't inflate a weapon's DPS against low-HP chaff.
+    // Live runs still attribute the full number (invincible dummies have ∞ HP, so
+    // this is a no-op for them and for normal play).
+    const recorded =
+      this.isSandbox === true ? Math.min(finalAmount, Math.max(0, enemy.hp)) : finalAmount
+    this.damageBySource.set(source, (this.damageBySource.get(source) ?? 0) + recorded)
     enemy.hp -= finalAmount
     this.spawnDamageNumber({ x: enemy.image.x, y: enemy.image.y, amount: finalAmount, isCrit })
-    enemy.image.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL)
-    this.time.delayedCall(40, () => {
-      if (enemy.image.active === true) {
-        enemy.image.clearTint()
-        enemy.image.setTintMode(Phaser.TintModes.MULTIPLY)
-      }
-    })
+    if (this.suppressVisuals === false) {
+      enemy.image.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL)
+      this.time.delayedCall(40, () => {
+        if (enemy.image.active === true) {
+          enemy.image.clearTint()
+          enemy.image.setTintMode(Phaser.TintModes.MULTIPLY)
+        }
+      })
+    }
     if (enemy.hp <= 0) {
       enemy.isDead = true
       this.kills += 1
@@ -5271,7 +5483,11 @@ export class GameScene extends Phaser.Scene {
     amount: number
     isCrit: boolean
   }): void {
-    if (damageNumbersEnabled.value === false || this.floatingTextCount >= 40) {
+    if (
+      this.suppressVisuals === true ||
+      damageNumbersEnabled.value === false ||
+      this.floatingTextCount >= 40
+    ) {
       return
     }
     this.floatingTextCount += 1
@@ -5300,6 +5516,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnImpactFlash({ x, y, radius }: { x: number; y: number; radius: number }): void {
+    if (this.suppressVisuals === true) {
+      return
+    }
     const flash = this.add.circle(x, y, 6, 0xf87171, 0.9).setDepth(DEPTHS.effects)
     this.tweens.add({
       targets: flash,
