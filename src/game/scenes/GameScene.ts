@@ -5392,6 +5392,9 @@ export class GameScene extends Phaser.Scene {
     const damageBySource = [...this.damageBySource.entries()]
       .map(([source, total]) => ({ source, total }))
       .sort((a, b) => b.total - a.total)
+    const cardStacks = Object.fromEntries(
+      [...this.upgradeStacks.entries()].filter(([, stacks]) => stacks > 0),
+    )
 
     this.time.delayedCall(750, () => {
       gameEventBus.emit({
@@ -5403,6 +5406,7 @@ export class GameScene extends Phaser.Scene {
           elapsedMs: this.elapsedMs,
           stardustEarned,
           damageBySource,
+          cardStacks,
         },
       })
       this.scene.pause()

@@ -359,21 +359,21 @@ export const DEVOURER = {
 
 /** proximity mines: every cannon lobs its own volley, held aloft on balloons */
 export const MINES = {
-  baseIntervalMs: 7_000,
+  baseIntervalMs: 8_000,
   intervalStepMs: 700,
   minIntervalMs: 5_000,
   /** mines per volley = floor(minesPerDrop + minesPerDropPerLevel × (level − 1)) */
   minesPerDrop: 1,
-  minesPerDropPerLevel: 0.8,
+  minesPerDropPerLevel: 0.5,
   /** active-mine ceiling scales with deployed cannons */
-  maxActivePerCannon: 8,
+  maxActivePerCannon: 6,
   armDelayMs: 500,
-  proximityPx: 42,
-  blastRadius: 95,
-  blastRadiusPerLevel: 14,
+  proximityPx: 30,
+  blastRadius: 85,
+  blastRadiusPerLevel: 8,
   /** mine damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
-  baseDamageMult: 3,
-  damageMultPerLevel: 1.8,
+  baseDamageMult: 2.5,
+  damageMultPerLevel: 1.2,
 } as const
 
 /** paints a reticle on the densest cluster, then fires a column from orbit */

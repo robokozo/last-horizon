@@ -231,7 +231,13 @@ onUnmounted(() => {
       @banish="(payload) => requestBanish(payload)"
     />
 
-    <GameOverOverlay v-if="runResult !== null" :result="runResult" @restart="() => restartRun()" />
+    <GameOverOverlay
+      v-if="runResult !== null"
+      :result="runResult"
+      :unlocked-node-ids="metaStore.unlockedNodeIds"
+      :prestige-level="metaStore.prestigeLevel"
+      @restart="() => restartRun()"
+    />
 
     <SynergyGlossary
       v-if="isGlossaryOpen === true"

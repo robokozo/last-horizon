@@ -39,10 +39,6 @@ export const PATCH_NOTES: Array<PatchEntry> = [
       },
       {
         kind: 'balance',
-        text: 'Balloon Mines hit harder and reach wider — faster deployment, more mines per drop, a higher active cap, bigger blasts, and a more forgiving trigger, so your banked minefield earns its keep.',
-      },
-      {
-        kind: 'balance',
         text: 'Orbital Laser scales much harder per rank in both damage and blast radius, turning it into a genuine tank- and boss-killer at high ranks instead of fizzling against chaff.',
       },
       {
@@ -56,6 +52,10 @@ export const PATCH_NOTES: Array<PatchEntry> = [
       {
         kind: 'new',
         text: 'The BFG discharge now blooms a green portal of light over every invader it washes over — you can see exactly what the blast caught.',
+      },
+      {
+        kind: 'new',
+        text: 'The end-of-run screen has a “Copy run details” button — grab a plain-text summary of your waves, weapons and tiers, per-weapon damage and DPS, and paragon nodes to share or compare builds.',
       },
       {
         kind: 'new',
