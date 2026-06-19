@@ -3480,12 +3480,12 @@ export class GameScene extends Phaser.Scene {
     const roll = Math.random()
     let label: string
     let color: number
-    if (roll < 0.55) {
+    if (roll < 0.6) {
       const heal = AIRDROP.repairIntegrity + AIRDROP.repairPerLevel * (level - 1)
       this.hp = Math.min(this.stats.maxHp, this.hp + heal)
       label = `+${heal} ⛨`
       color = 0x4ade80
-    } else if (roll < 0.85) {
+    } else if (roll < 0.8) {
       const dust = AIRDROP.stardust + AIRDROP.stardustPerLevel * (level - 1)
       this.bonusStardust += dust
       label = `✦ +${dust}`

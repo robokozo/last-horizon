@@ -584,9 +584,9 @@ export const AIRDROP = {
   /** integrity restored by a repair crate (+ per level) */
   repairIntegrity: 14,
   repairPerLevel: 4,
-  /** stardust banked by a supply crate (+ per level) */
-  stardust: 8,
-  stardustPerLevel: 3,
+  /** stardust banked by a supply crate (+ per level) — kept small; it compounds across runs */
+  stardust: 3,
+  stardustPerLevel: 1,
   /** fraction of the capacitor a reactor crate fills */
   capacitorCharge: 0.5,
 } as const
