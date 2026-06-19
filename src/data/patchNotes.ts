@@ -39,7 +39,7 @@ export const PATCH_NOTES: Array<PatchEntry> = [
       },
       {
         kind: 'balance',
-        text: 'Star Harvest (paragon keystone) now grants +1 card to choose from on every level-up instead of +15% rarer-card odds — a guaranteed extra option each pick, rather than a roll of the dice.',
+        text: 'Farsight Protocol (paragon keystone) now grants +1 card to choose from on every level-up in place of its projectile pierce — a guaranteed extra option on every pick. Pierce is being reserved for weapons that earn it.',
       },
     ],
   },

@@ -362,10 +362,10 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     keystone: {
       name: 'Farsight Protocol',
       icon: '👁️',
-      description: 'Keystone: +25% targeting range and projectiles pierce +1 invader',
+      description: 'Keystone: +25% targeting range and +1 card to choose from on every level-up',
       effects: [
         { stat: 'rangePercent', amount: 25 },
-        { stat: 'pierceFlat', amount: 1 },
+        { stat: 'cardChoiceFlat', amount: 1 },
       ],
     },
   },
@@ -398,12 +398,11 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     keystone: {
       name: 'Star Harvest',
       icon: '🌟',
-      description:
-        'Keystone: +50% stardust, +20% experience, and +1 card to choose from on every level-up',
+      description: 'Keystone: +50% stardust, +20% experience, +15% odds of rarer cards',
       effects: [
         { stat: 'stardustPercent', amount: 50 },
         { stat: 'xpPercent', amount: 20 },
-        { stat: 'cardChoiceFlat', amount: 1 },
+        { stat: 'luckPercent', amount: 15 },
       ],
     },
   },
