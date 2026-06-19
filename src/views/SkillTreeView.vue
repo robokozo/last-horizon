@@ -235,6 +235,14 @@ function unlockSelectedNode(): void {
   metaStore.unlockNode({ nodeId: selectedNodeId.value })
 }
 
+/** double-click shortcut: select the node and buy it in one gesture, if affordable */
+function purchaseNode({ nodeId }: { nodeId: string }): void {
+  selectedNodeId.value = nodeId
+  if (metaStore.canUnlockNode({ nodeId }) === true) {
+    metaStore.unlockNode({ nodeId })
+  }
+}
+
 function requestReset(): void {
   if (isConfirmingReset.value === false) {
     isConfirmingReset.value = true
@@ -305,6 +313,12 @@ function nodeOpacity({ node }: { node: SkillNode }): number {
         <h1 class="text-xl font-black tracking-wider text-fuchsia-300">PARAGON TREE</h1>
       </div>
       <div class="flex items-center gap-4">
+        <RouterLink
+          to="/game"
+          class="cursor-pointer rounded-lg bg-emerald-500 px-4 py-1.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
+        >
+          ▶ Launch Run
+        </RouterLink>
         <span
           v-if="metaStore.prestigeLevel > 0"
           class="flex items-center gap-2 rounded-full border border-sky-400/30 bg-sky-400/10 px-4 py-1.5 text-sm font-bold text-sky-300"
@@ -376,6 +390,7 @@ function nodeOpacity({ node }: { node: SkillNode }): number {
           class="cursor-pointer"
           :opacity="nodeOpacity({ node })"
           @click="selectNode({ nodeId: node.id })"
+          @dblclick="purchaseNode({ nodeId: node.id })"
           @pointerenter="(event) => onNodeHover({ nodeId: node.id, event })"
           @pointermove="(event) => onNodeHover({ nodeId: node.id, event })"
           @pointerleave="onNodeHoverEnd()"

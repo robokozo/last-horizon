@@ -706,7 +706,7 @@ export function describeSynergyRequirements({
     .join(' + ')
 }
 
-/** paragon tier nodes only raise the caps of weapons, not tactics */
+/** paragon tier nodes raise the caps of weapons and synergy tactics alike */
 function effectiveMaxStacks({
   definition,
   weaponTierBonus,
@@ -714,10 +714,7 @@ function effectiveMaxStacks({
   definition: UpgradeDefinition
   weaponTierBonus: number
 }): number {
-  if (definition.category === 'weapon') {
-    return definition.maxStacks + weaponTierBonus
-  }
-  return definition.maxStacks
+  return definition.maxStacks + weaponTierBonus
 }
 
 function rarityWeight({

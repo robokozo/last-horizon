@@ -121,6 +121,8 @@ export interface UpgradeChoice {
   maxStacks: number
   /** for synergy tactics: the parent cards, e.g. "Tesla Arc ★2 + Cloud Cover ★2" */
   synergyOf: string | null
+  /** real before→after stat changes this pick makes, for the card to show */
+  effects?: Array<{ label: string; from: string | null; to: string }>
 }
 
 export interface LevelUpOffer {

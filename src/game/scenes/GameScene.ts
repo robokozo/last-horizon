@@ -5,7 +5,6 @@ import {
   ARENA,
   BASE_RUN_STATS,
   BATTERY,
-  BFG,
   BULLET,
   CAPACITOR,
   CHAIN,
@@ -42,6 +41,11 @@ import {
   SANDBOX_MIX,
   type EnemyDefinition,
 } from '@/game/data/enemies'
+import {
+  previewEffects,
+  weaponBaseIntervalMs,
+  weaponDamageMultiplier,
+} from '@/game/data/upgradeEffects'
 import {
   countOwnedWeapons,
   fillerStardustReward,
@@ -1947,8 +1951,7 @@ export class GameScene extends Phaser.Scene {
     cannon.barrelImage.setRotation(aimAngle)
     soundEngine.play({ name: 'flame' })
 
-    const damage =
-      this.stats.damage * (FLAME.baseDamageMult + FLAME.damageMultPerLevel * (level - 1))
+    const damage = this.stats.damage * weaponDamageMultiplier({ weaponId: 'flame', level })
     const burnDps =
       this.stats.damage * (FLAME.burnDpsMultBase + FLAME.burnDpsMultPerLevel * (level - 1))
     for (const enemy of this.enemies) {
@@ -2581,7 +2584,7 @@ export class GameScene extends Phaser.Scene {
       velocityY: Math.sin(angle) * ROCKET.speed,
       damage:
         this.stats.damage *
-        (ROCKET.baseDamageMult + ROCKET.damageMultPerLevel * (this.stats.rocketLevel - 1)),
+        weaponDamageMultiplier({ weaponId: 'rocket', level: this.stats.rocketLevel }),
       blastRadius: this.rocketBlastRadius(),
       trailAccumulatorMs: 0,
       isDead: false,
@@ -2702,7 +2705,7 @@ export class GameScene extends Phaser.Scene {
 
     const chainDamage =
       this.stats.damage *
-      (CHAIN.baseDamageMult + CHAIN.damageMultPerLevel * (this.stats.chainLevel - 1))
+      weaponDamageMultiplier({ weaponId: 'chain', level: this.stats.chainLevel })
     const stunMs = CHAIN.stunMsBase + CHAIN.stunMsPerLevel * (this.stats.chainLevel - 1)
     for (const enemy of struck) {
       this.damageEnemy({ enemy, amount: chainDamage, source: 'chain' })
@@ -2852,87 +2855,48 @@ export class GameScene extends Phaser.Scene {
     return base * this.stats.weaponCooldownFactor * this.surgeCooldownFactor()
   }
 
+  /** which RunStats rank field backs each cooldown weapon */
+  private weaponLevelOf({ weaponId }: { weaponId: string }): number {
+    switch (weaponId) {
+      case 'flak':
+        return this.stats.flakLevel
+      case 'flame':
+        return this.stats.flameLevel
+      case 'devourer':
+        return this.stats.devourerLevel
+      case 'rocket':
+        return this.stats.rocketLevel
+      case 'chain':
+        return this.stats.chainLevel
+      case 'lockdown':
+        return this.stats.lockdownLevel
+      case 'railgun':
+        return this.stats.railgunLevel
+      case 'airstrike':
+        return this.stats.airstrikeLevel
+      case 'bfg':
+        return this.stats.bfgLevel
+      case 'lance':
+        return this.stats.lanceLevel
+      case 'mines':
+        return this.stats.mineLevel
+      case 'orbital-laser':
+        return this.stats.orbitalLaserLevel
+      default:
+        return 0
+    }
+  }
+
   private baseWeaponIntervalMs({ weaponId }: { weaponId: string }): number {
-    if (weaponId === 'flak') {
-      return Math.max(
-        FLAK.minIntervalMs,
-        FLAK.baseIntervalMs - FLAK.intervalStepMs * (this.stats.flakLevel - 1),
-      )
-    }
-    if (weaponId === 'flame') {
-      return Math.max(
-        FLAME.minIntervalMs,
-        FLAME.baseIntervalMs - FLAME.intervalStepMs * (this.stats.flameLevel - 1),
-      )
-    }
-    if (weaponId === 'devourer') {
-      return Math.max(
-        DEVOURER.minIntervalMs,
-        DEVOURER.baseIntervalMs - DEVOURER.intervalStepMs * (this.stats.devourerLevel - 1),
-      )
-    }
-    if (weaponId === 'rocket') {
-      return Math.max(
-        ROCKET.minIntervalMs,
-        ROCKET.baseIntervalMs - ROCKET.intervalStepMs * (this.stats.rocketLevel - 1),
-      )
-    }
-    if (weaponId === 'chain') {
-      return Math.max(
-        CHAIN.minIntervalMs,
-        CHAIN.baseIntervalMs - CHAIN.intervalStepMs * (this.stats.chainLevel - 1),
-      )
-    }
+    // nova and the aegis shield carry their cadence on the stats themselves
     if (weaponId === 'nova') {
       return this.stats.novaIntervalMs ?? Number.POSITIVE_INFINITY
-    }
-    if (weaponId === 'lockdown') {
-      return Math.max(
-        LOCKDOWN.minIntervalMs,
-        LOCKDOWN.baseIntervalMs - LOCKDOWN.intervalStepMs * (this.stats.lockdownLevel - 1),
-      )
-    }
-    if (weaponId === 'railgun') {
-      return Math.max(
-        RAILGUN.minIntervalMs,
-        RAILGUN.baseIntervalMs - RAILGUN.intervalStepMs * (this.stats.railgunLevel - 1),
-      )
-    }
-    if (weaponId === 'airstrike') {
-      return Math.max(
-        AIRSTRIKE.minIntervalMs,
-        AIRSTRIKE.baseIntervalMs - AIRSTRIKE.intervalStepMs * (this.stats.airstrikeLevel - 1),
-      )
-    }
-    if (weaponId === 'bfg') {
-      return Math.max(
-        BFG.minIntervalMs,
-        BFG.baseIntervalMs - BFG.intervalStepMs * (this.stats.bfgLevel - 1),
-      )
-    }
-    if (weaponId === 'lance') {
-      return Math.max(
-        LANCE.minIntervalMs,
-        LANCE.baseIntervalMs - LANCE.intervalStepMs * (this.stats.lanceLevel - 1),
-      )
-    }
-    if (weaponId === 'mines') {
-      return Math.max(
-        MINES.minIntervalMs,
-        MINES.baseIntervalMs - MINES.intervalStepMs * (this.stats.mineLevel - 1),
-      )
-    }
-    if (weaponId === 'orbital-laser') {
-      return Math.max(
-        ORBITAL_LASER.minIntervalMs,
-        ORBITAL_LASER.baseIntervalMs -
-          ORBITAL_LASER.intervalStepMs * (this.stats.orbitalLaserLevel - 1),
-      )
     }
     if (weaponId === 'aegis') {
       return this.stats.aegisIntervalMs ?? Number.POSITIVE_INFINITY
     }
-    return Number.POSITIVE_INFINITY
+    // every other cooldown weapon shares the one ramp table in upgradeEffects
+    return weaponBaseIntervalMs({ weaponId, level: this.weaponLevelOf({ weaponId }) })
   }
 
   private updateCannonWeapons({ delta }: { delta: number }): void {
@@ -3157,8 +3121,7 @@ export class GameScene extends Phaser.Scene {
 
     // the beam is instant: damage everything whose center sits near the segment
     const beamHalfWidth = RAILGUN.beamHalfWidthPx + 1.5 * (level - 1)
-    const beamDamage =
-      this.stats.damage * (RAILGUN.baseDamageMult + RAILGUN.damageMultPerLevel * (level - 1))
+    const beamDamage = this.stats.damage * weaponDamageMultiplier({ weaponId: 'railgun', level })
     for (const enemy of this.enemies) {
       if (enemy.isDead === true) {
         continue
@@ -3449,7 +3412,7 @@ export class GameScene extends Phaser.Scene {
       fuseRemainingMs: AIRSTRIKE.bombFuseMs * (0.8 + Math.random() * 0.5),
       damage:
         this.stats.damage *
-        (AIRSTRIKE.baseDamageMult + AIRSTRIKE.damageMultPerLevel * (this.stats.airstrikeLevel - 1)),
+        weaponDamageMultiplier({ weaponId: 'airstrike', level: this.stats.airstrikeLevel }),
       blastRadius:
         AIRSTRIKE.baseBlastRadius + AIRSTRIKE.blastRadiusPerLevel * (this.stats.airstrikeLevel - 1),
       isDead: false,
@@ -3609,7 +3572,7 @@ export class GameScene extends Phaser.Scene {
     this.shakeCamera({ durationMs: 300, intensity: 0.008 })
 
     const bfgDamage =
-      this.stats.damage * (BFG.baseDamageMult + BFG.damageMultPerLevel * (this.stats.bfgLevel - 1))
+      this.stats.damage * weaponDamageMultiplier({ weaponId: 'bfg', level: this.stats.bfgLevel })
     for (const enemy of this.enemies) {
       if (enemy.isDead === true) {
         continue
@@ -3815,8 +3778,7 @@ export class GameScene extends Phaser.Scene {
     })
     this.shakeCamera({ durationMs: 140, intensity: 0.004 })
 
-    const sweepDamage =
-      this.stats.damage * (LANCE.baseDamageMult + LANCE.damageMultPerLevel * (level - 1))
+    const sweepDamage = this.stats.damage * weaponDamageMultiplier({ weaponId: 'lance', level })
     this.sweeps.push({
       originX,
       originY,
@@ -4107,7 +4069,7 @@ export class GameScene extends Phaser.Scene {
             blastRadius: MINES.blastRadius + MINES.blastRadiusPerLevel * (this.stats.mineLevel - 1),
             damage:
               this.stats.damage *
-              (MINES.baseDamageMult + MINES.damageMultPerLevel * (this.stats.mineLevel - 1)),
+              weaponDamageMultiplier({ weaponId: 'mines', level: this.stats.mineLevel }),
             source: 'mines',
           })
           // smokescreen synergy: the detonation leaves a slowing smoke bank
@@ -4266,9 +4228,7 @@ export class GameScene extends Phaser.Scene {
         SYNERGIES.painted.radiusBonusBase +
         SYNERGIES.painted.radiusBonusPerLevel * (this.stats.paintedLevel - 1)
     }
-    const damage =
-      this.stats.damage *
-      (ORBITAL_LASER.baseDamageMult + ORBITAL_LASER.damageMultPerLevel * (level - 1))
+    const damage = this.stats.damage * weaponDamageMultiplier({ weaponId: 'orbital-laser', level })
 
     // the column of light from orbit down to the strike point
     const column = this.add
@@ -4366,7 +4326,7 @@ export class GameScene extends Phaser.Scene {
 
     const boltDamage =
       this.stats.damage *
-      (STORM_FRONT.baseDamageMult + STORM_FRONT.damageMultPerLevel * (this.stats.stormLevel - 1))
+      weaponDamageMultiplier({ weaponId: 'storm', level: this.stats.stormLevel })
     let didStrike = false
     for (const cloud of this.cloudImages) {
       for (const enemy of this.enemies) {
@@ -5174,7 +5134,15 @@ export class GameScene extends Phaser.Scene {
       weaponSlots: this.stats.weaponSlots,
       weaponTierBonus: this.stats.weaponTierBonus,
       banished: this.banishedCardIds,
-    })
+    }).map((choice) => ({
+      ...choice,
+      // real numbers for what this pick changes, from the shared effect data
+      effects: previewEffects({
+        id: choice.id,
+        stats: this.stats,
+        currentLevel: choice.currentStacks,
+      }),
+    }))
     gameEventBus.emit({
       event: 'level-up',
       payload: {

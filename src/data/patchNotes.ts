@@ -21,6 +21,29 @@ export interface PatchEntry {
  */
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
+    date: '2026-06-19',
+    title: 'By the Numbers',
+    blurb: 'Every upgrade shows exactly what it changes.',
+    notes: [
+      {
+        kind: 'new',
+        text: 'Level-up cards now spell out the real numbers a pick changes — damage, cooldown, blast radius, burn, freeze and more. Cards you already own show it as a before → after, so you can see exactly what ranking up does.',
+      },
+      {
+        kind: 'new',
+        text: 'Launch a run straight from the paragon tree with the new ▶ Launch Run button.',
+      },
+      {
+        kind: 'new',
+        text: 'Double-click a paragon node to buy it instantly when you can afford it.',
+      },
+      {
+        kind: 'balance',
+        text: 'Paragon weapon-tier nodes now raise the rank cap of synergy tactics too, not just weapons — your synergies can climb past ★5 on the same nodes.',
+      },
+    ],
+  },
+  {
     date: '2026-06-18',
     title: 'Saboteurs',
     blurb: 'Repair drones learn to cut the enemy’s power, plus a balance pass across the board.',

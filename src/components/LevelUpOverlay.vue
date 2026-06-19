@@ -128,6 +128,25 @@ const RARITY_LABEL_CLASSES: Record<UpgradeRarity, string> = {
             <span class="text-lg font-bold text-slate-100">{{ choice.name }}</span>
             <span class="text-sm text-slate-400">{{ choice.description }}</span>
             <span
+              v-if="choice.effects !== undefined && choice.effects.length > 0"
+              class="flex flex-col gap-0.5 rounded-lg bg-slate-950/60 p-2 text-xs"
+            >
+              <span
+                v-for="line in choice.effects"
+                :key="line.label"
+                class="flex items-baseline justify-between gap-2"
+              >
+                <span class="text-slate-500">{{ line.label }}</span>
+                <span class="font-bold text-slate-200">
+                  <template v-if="line.from !== null">
+                    <span class="text-slate-500">{{ line.from }}</span>
+                    <span class="text-slate-600"> → </span>
+                  </template>
+                  <span class="text-lime-300">{{ line.to }}</span>
+                </span>
+              </span>
+            </span>
+            <span
               v-if="comboBadgeByChoiceId[choice.id] !== undefined"
               class="w-fit cursor-help rounded bg-amber-400/15 px-1.5 py-0.5 text-xs font-semibold text-amber-300"
               :title="comboBadgeByChoiceId[choice.id].title"
