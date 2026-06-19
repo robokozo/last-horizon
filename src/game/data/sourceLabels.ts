@@ -18,4 +18,5 @@ export const SOURCE_LABELS: Record<string, string> = {
   cluster: 'Cluster Bombs',
   burn: 'Burning',
   shock: 'Thermal Shock',
+  static: 'Static Field',
 }

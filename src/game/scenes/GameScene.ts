@@ -28,6 +28,7 @@ import {
   STORM_FRONT,
   SALVO,
   SYNERGIES,
+  SYNERGY_STATIC,
   RAILGUN,
   ROCKET,
   STARDUST,
@@ -5053,6 +5054,51 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** true when an owned damaging synergy has turned this weapon into a static emitter */
+  private sourceHasStaticField({ source }: { source: string }): boolean {
+    switch (source) {
+      case 'storm':
+        return this.stats.stormLevel > 0
+      case 'ion':
+        return this.stats.ionLevel > 0
+      case 'cluster':
+        return this.stats.clusterLevel > 0
+      case 'shock':
+        return this.stats.thermalShockLevel > 0
+      case 'railgun':
+        return this.stats.twinRailLevel > 0
+      case 'flak':
+        return this.stats.barrageLevel > 0 || this.stats.salvageLevel > 0
+      case 'rocket':
+        return this.stats.seekerLevel > 0 || this.stats.casLevel > 0
+      case 'lance':
+        return this.stats.refractionLevel > 0
+      case 'chain':
+        return this.stats.arcCapLevel > 0
+      default:
+        return false
+    }
+  }
+
+  /** the small static field a synergy weapon emits on hit — chips current hp to a fixed floor */
+  private applyStaticField({ x, y }: { x: number; y: number }): void {
+    for (const enemy of this.enemies) {
+      if (enemy.isDead === true) {
+        continue
+      }
+      const distanceSq = (enemy.image.x - x) ** 2 + (enemy.image.y - y) ** 2
+      if (distanceSq > (SYNERGY_STATIC.radius + enemy.radius) ** 2) {
+        continue
+      }
+      const floorHp = enemy.maxHp * SYNERGY_STATIC.floorPercent
+      if (enemy.hp <= floorHp) {
+        continue
+      }
+      const amount = Math.min(enemy.hp * SYNERGY_STATIC.percent, enemy.hp - floorHp)
+      this.damageEnemy({ enemy, amount, source: 'static', canCrit: false })
+    }
+  }
+
   private damageEnemy({
     enemy,
     amount,
@@ -5091,6 +5137,11 @@ export class GameScene extends Phaser.Scene {
         },
       })
       return
+    }
+    // a damaging synergy turns its base weapon into a static-field emitter: strip a
+    // slice of every nearby invader's CURRENT hp (to a fixed floor) before this hit
+    if (source !== 'static' && this.sourceHasStaticField({ source }) === true) {
+      this.applyStaticField({ x: enemy.image.x, y: enemy.image.y })
     }
     let finalAmount = amount
     // crit chance applies to every weapon system, rolled per hit

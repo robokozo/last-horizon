@@ -91,6 +91,18 @@ export const NOVA = {
   floorMin: 0.05,
 } as const
 
+/**
+ * A damaging synergy turns its base weapon into a static-field emitter: each hit
+ * first strips a slice of every nearby invader's CURRENT hp (down to a fixed
+ * floor) before the weapon's own damage lands. Small, fixed radius and floor —
+ * the per-rank scaling lives on Nova Pulse, not here.
+ */
+export const SYNERGY_STATIC = {
+  percent: 0.25,
+  floorPercent: 0.15,
+  radius: 70,
+} as const
+
 export const SALVO = {
   /** volley shots beyond the first deal this fraction of full damage */
   extraShotDamageFactor: 0.6,
