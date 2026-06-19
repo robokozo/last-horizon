@@ -73,6 +73,40 @@ function toggleMusic(): void {
   soundEngine.setMusicEnabled({ isEnabled: isMusicOn.value })
 }
 
+// ── run history (export for DPS analysis) ──────────────────────────────
+const historyCopyState = ref<'idle' | 'copied' | 'failed'>('idle')
+const isConfirmingHistoryClear = ref(false)
+
+async function copyRunHistory(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(metaStore.exportRunHistory())
+    historyCopyState.value = 'copied'
+  } catch {
+    historyCopyState.value = 'failed'
+  }
+  setTimeout(() => {
+    historyCopyState.value = 'idle'
+  }, 2_000)
+}
+
+function downloadRunHistory(): void {
+  const blob = new Blob([metaStore.exportRunHistory()], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `last-horizon-runs-${new Date().toISOString().slice(0, 10)}.json`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+function onClearHistoryClick(): void {
+  if (isConfirmingHistoryClear.value === false) {
+    isConfirmingHistoryClear.value = true
+    return
+  }
+  metaStore.clearRunHistory()
+  isConfirmingHistoryClear.value = false
+}
 </script>
 
 <template>
@@ -267,7 +301,52 @@ function toggleMusic(): void {
 
         <SaveTransfer />
 
-        <div v-if="isDev === true" class="flex flex-col gap-2 border-t border-dashed border-amber-500/40 pt-3">
+        <div class="flex flex-col gap-2 border-t border-slate-800 pt-3">
+          <span class="text-xs font-semibold text-slate-400">
+            Run history — {{ metaStore.runHistory.length }} run{{
+              metaStore.runHistory.length === 1 ? '' : 's'
+            }}
+            logged (for DPS analysis)
+          </span>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="cursor-pointer rounded-lg bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="metaStore.runHistory.length === 0"
+              @click="downloadRunHistory()"
+            >
+              ⬇ Download JSON
+            </button>
+            <button
+              type="button"
+              class="cursor-pointer rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="metaStore.runHistory.length === 0"
+              @click="copyRunHistory()"
+            >
+              {{
+                historyCopyState === 'copied'
+                  ? '✓ Copied'
+                  : historyCopyState === 'failed'
+                    ? 'Copy failed'
+                    : '📋 Copy JSON'
+              }}
+            </button>
+            <button
+              v-if="metaStore.runHistory.length > 0"
+              type="button"
+              class="cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold text-red-400/70 transition hover:text-red-400"
+              @click="onClearHistoryClick()"
+              @mouseleave="isConfirmingHistoryClear = false"
+            >
+              {{ isConfirmingHistoryClear === true ? 'Confirm clear?' : 'Clear' }}
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-if="isDev === true"
+          class="flex flex-col gap-2 border-t border-dashed border-amber-500/40 pt-3"
+        >
           <div class="flex flex-wrap items-center gap-2">
             <button
               type="button"

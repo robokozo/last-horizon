@@ -27,6 +27,19 @@ interface LifetimeStats {
   totalStardustEarned: number
 }
 
+/** one finished run, snapshotted for export + offline DPS analysis */
+export interface RunHistoryEntry {
+  /** ISO timestamp the run ended */
+  date: string
+  prestigeLevel: number
+  /** paragon nodes owned for this run */
+  unlockedNodeIds: Array<string>
+  result: RunResult
+}
+
+/** keep the history bounded so localStorage never balloons */
+const RUN_HISTORY_CAP = 200
+
 const DEFAULT_LIFETIME_STATS: LifetimeStats = {
   runs: 0,
   kills: 0,
@@ -51,6 +64,8 @@ export const useMetaStore = defineStore('meta', () => {
   // how many times each weapon card has been picked across all runs — drives the
   // "favorite weapons" readout. Lifetime preference data, so it survives prestige.
   const weaponPicks = useLocalStorage<Record<string, number>>('pd-weapon-picks', {})
+  // a rolling log of finished runs for export + DPS analysis (device-local)
+  const runHistory = useLocalStorage<Array<RunHistoryEntry>>('pd-run-history', [])
 
   // saves from before a tree redesign reference node ids that no longer
   // exist: reset the tree and refund everything ever earned
@@ -155,6 +170,7 @@ export const useMetaStore = defineStore('meta', () => {
     prestigeLevel.value = 0
     lifetime.value = { ...DEFAULT_LIFETIME_STATS }
     weaponPicks.value = {}
+    runHistory.value = []
   }
 
   /**
@@ -185,7 +201,10 @@ export const useMetaStore = defineStore('meta', () => {
         treeSpent?: number
         prestigeLevel?: number
       }
-      if (typeof payload.stardust !== 'number' || Array.isArray(payload.unlockedNodeIds) === false) {
+      if (
+        typeof payload.stardust !== 'number' ||
+        Array.isArray(payload.unlockedNodeIds) === false
+      ) {
         return false
       }
       stardust.value = payload.stardust
@@ -222,6 +241,23 @@ export const useMetaStore = defineStore('meta', () => {
       bestWave: Math.max(lifetime.value.bestWave, result.waveReached),
       totalStardustEarned: lifetime.value.totalStardustEarned + result.stardustEarned + interest,
     }
+    // log the run for export / DPS analysis, newest last, capped
+    const entry: RunHistoryEntry = {
+      date: new Date().toISOString(),
+      prestigeLevel: prestigeLevel.value,
+      unlockedNodeIds: [...unlockedNodeIds.value],
+      result,
+    }
+    runHistory.value = [...runHistory.value, entry].slice(-RUN_HISTORY_CAP)
+  }
+
+  /** the whole run log as pretty JSON, for copy/download into a spreadsheet or notebook */
+  function exportRunHistory(): string {
+    return JSON.stringify(runHistory.value, null, 2)
+  }
+
+  function clearRunHistory(): void {
+    runHistory.value = []
   }
 
   const totalSpentOnTree = computed(() => treeSpent.value)
@@ -231,6 +267,9 @@ export const useMetaStore = defineStore('meta', () => {
     unlockedNodeIds,
     lifetime,
     weaponPicks,
+    runHistory,
+    exportRunHistory,
+    clearRunHistory,
     favoriteWeapons,
     recordWeaponPick,
     unlockedNodeIdSet,

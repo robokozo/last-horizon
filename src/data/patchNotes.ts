@@ -38,6 +38,10 @@ export const PATCH_NOTES: Array<PatchEntry> = [
         text: 'Lock Down now leaves a lingering frost field over the frozen zone, fading out as the hold expires — you can see exactly where it is safe.',
       },
       {
+        kind: 'new',
+        text: 'Run history: every finished run is now logged locally with its weapons, paragon nodes, and per-weapon damage. Export it (copy or download JSON) from Settings to crunch your own DPS analysis.',
+      },
+      {
         kind: 'balance',
         text: 'Farsight Protocol (paragon keystone) now grants +1 card to choose from on every level-up in place of its projectile pierce — a guaranteed extra option on every pick.',
       },
