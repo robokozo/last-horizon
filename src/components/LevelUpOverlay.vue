@@ -85,118 +85,118 @@ const RARITY_LABEL_CLASSES: Record<UpgradeRarity, string> = {
 </script>
 
 <template>
-  <div
-    class="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm"
-  >
-    <div class="flex flex-col items-center gap-6 p-6">
-      <h2 class="text-3xl font-black text-sky-300">Level {{ offer.level }}!</h2>
-      <p class="-mt-4 flex items-center gap-3 text-sm text-slate-400">
-        Choose an upgrade
-        <span
-          class="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-0.5 text-xs font-semibold text-slate-300"
-        >
-          Weapon slots {{ offer.weaponSlotsUsed }} / {{ offer.weaponSlotsTotal }}
-        </span>
-      </p>
-      <div class="flex flex-wrap items-stretch justify-center gap-4">
-        <div v-for="choice in offer.choices" :key="choice.id" class="relative flex">
-          <button
-            type="button"
-            class="flex w-52 cursor-pointer flex-col gap-2 rounded-xl border bg-slate-900/90 p-5 text-left transition hover:-translate-y-1"
-            :class="RARITY_CARD_CLASSES[choice.rarity]"
-            @click="emit('choose', { upgradeId: choice.id })"
+  <div class="absolute inset-0 z-20 overflow-y-auto bg-slate-950/70 backdrop-blur-sm">
+    <div class="flex min-h-full items-center justify-center p-6">
+      <div class="flex flex-col items-center gap-6">
+        <h2 class="text-3xl font-black text-sky-300">Level {{ offer.level }}!</h2>
+        <p class="-mt-4 flex items-center gap-3 text-sm text-slate-400">
+          Choose an upgrade
+          <span
+            class="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-0.5 text-xs font-semibold text-slate-300"
           >
-            <span class="flex items-center justify-between gap-2">
-              <span
-                class="text-[10px] font-bold uppercase tracking-widest"
-                :class="RARITY_LABEL_CLASSES[choice.rarity]"
-              >
-                {{ choice.rarity }}
-              </span>
-              <span
-                v-if="choice.category === 'weapon'"
-                class="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
-                :class="
-                  choice.currentStacks === 0
-                    ? 'bg-amber-400/20 text-amber-300'
-                    : 'bg-slate-700/60 text-slate-400'
-                "
-              >
-                {{ choice.currentStacks === 0 ? 'Uses a slot' : 'Weapon' }}
-              </span>
-            </span>
-            <span class="text-lg font-bold text-slate-100">{{ choice.name }}</span>
-            <span class="text-sm text-slate-400">{{ choice.description }}</span>
-            <span
-              v-if="choice.effects !== undefined && choice.effects.length > 0"
-              class="flex flex-col gap-0.5 rounded-lg bg-slate-950/60 p-2 text-xs"
-            >
-              <span
-                v-for="line in choice.effects"
-                :key="line.label"
-                class="flex items-baseline justify-between gap-2"
-              >
-                <span class="text-slate-500">{{ line.label }}</span>
-                <span class="font-bold text-slate-200">
-                  <template v-if="line.from !== null">
-                    <span class="text-slate-500">{{ line.from }}</span>
-                    <span class="text-slate-600"> → </span>
-                  </template>
-                  <span class="text-lime-300">{{ line.to }}</span>
-                </span>
-              </span>
-            </span>
-            <span
-              v-if="comboBadgeByChoiceId[choice.id] !== undefined"
-              class="w-fit cursor-help rounded bg-amber-400/15 px-1.5 py-0.5 text-xs font-semibold text-amber-300"
-              :title="comboBadgeByChoiceId[choice.id].title"
-            >
-              {{ comboBadgeByChoiceId[choice.id].text }}
-            </span>
-            <span
-              v-if="choice.synergyOf !== null"
-              class="text-xs font-semibold text-fuchsia-300/90"
-            >
-              ⛓ Synergy of {{ choice.synergyOf }}
-            </span>
-            <span class="mt-auto text-sm tracking-widest" aria-label="tier progress">
-              <template v-for="star in choice.maxStacks" :key="star">
-                <span :class="star <= choice.currentStacks ? 'text-amber-300' : 'text-slate-600'">
-                  {{ star <= choice.currentStacks ? '★' : '☆' }}
-                </span>
-              </template>
-            </span>
-          </button>
-          <button
-            v-if="offer.banishesLeft > 0 && isBanishable({ choice })"
-            type="button"
-            class="absolute -right-2 -top-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-red-500/50 bg-slate-950 text-xs font-bold text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
-            :title="`Banish ${choice.name} for the rest of this run`"
-            @click.stop="emit('banish', { upgradeId: choice.id })"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-      <div class="flex items-center gap-3">
-        <button
-          v-if="offer.rerollsLeft > 0"
-          type="button"
-          class="cursor-pointer rounded-lg border border-slate-600 px-5 py-2 text-sm font-semibold text-slate-300 transition hover:border-slate-400 hover:text-slate-100"
-          @click="emit('reroll')"
-        >
-          ↻ Reroll ({{ offer.rerollsLeft }} left this run)
-        </button>
-        <button
-          type="button"
-          class="cursor-pointer rounded-lg border border-fuchsia-500/40 px-5 py-2 text-sm font-semibold text-fuchsia-300 transition hover:border-fuchsia-400 hover:bg-fuchsia-500/10"
-          @click="isGlossaryOpen = true"
-        >
-          ⛓ Synergies
-        </button>
-        <p v-if="offer.banishesLeft > 0" class="text-xs text-slate-500">
-          ✕ banishes a card for the run ({{ offer.banishesLeft }} left)
+            Weapon slots {{ offer.weaponSlotsUsed }} / {{ offer.weaponSlotsTotal }}
+          </span>
         </p>
+        <div class="flex flex-wrap items-stretch justify-center gap-4">
+          <div v-for="choice in offer.choices" :key="choice.id" class="relative flex">
+            <button
+              type="button"
+              class="flex w-52 cursor-pointer flex-col gap-2 rounded-xl border bg-slate-900/90 p-5 text-left transition hover:-translate-y-1"
+              :class="RARITY_CARD_CLASSES[choice.rarity]"
+              @click="emit('choose', { upgradeId: choice.id })"
+            >
+              <span class="flex items-center justify-between gap-2">
+                <span
+                  class="text-[10px] font-bold uppercase tracking-widest"
+                  :class="RARITY_LABEL_CLASSES[choice.rarity]"
+                >
+                  {{ choice.rarity }}
+                </span>
+                <span
+                  v-if="choice.category === 'weapon'"
+                  class="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                  :class="
+                    choice.currentStacks === 0
+                      ? 'bg-amber-400/20 text-amber-300'
+                      : 'bg-slate-700/60 text-slate-400'
+                  "
+                >
+                  {{ choice.currentStacks === 0 ? 'Uses a slot' : 'Weapon' }}
+                </span>
+              </span>
+              <span class="text-lg font-bold text-slate-100">{{ choice.name }}</span>
+              <span class="text-sm text-slate-400">{{ choice.description }}</span>
+              <span
+                v-if="choice.effects !== undefined && choice.effects.length > 0"
+                class="flex flex-col gap-0.5 rounded-lg bg-slate-950/60 p-2 text-xs"
+              >
+                <span
+                  v-for="line in choice.effects"
+                  :key="line.label"
+                  class="flex items-baseline justify-between gap-2"
+                >
+                  <span class="text-slate-500">{{ line.label }}</span>
+                  <span class="font-bold text-slate-200">
+                    <template v-if="line.from !== null">
+                      <span class="text-slate-500">{{ line.from }}</span>
+                      <span class="text-slate-600"> → </span>
+                    </template>
+                    <span class="text-lime-300">{{ line.to }}</span>
+                  </span>
+                </span>
+              </span>
+              <span
+                v-if="comboBadgeByChoiceId[choice.id] !== undefined"
+                class="w-fit cursor-help rounded bg-amber-400/15 px-1.5 py-0.5 text-xs font-semibold text-amber-300"
+                :title="comboBadgeByChoiceId[choice.id].title"
+              >
+                {{ comboBadgeByChoiceId[choice.id].text }}
+              </span>
+              <span
+                v-if="choice.synergyOf !== null"
+                class="text-xs font-semibold text-fuchsia-300/90"
+              >
+                ⛓ Synergy of {{ choice.synergyOf }}
+              </span>
+              <span class="mt-auto text-sm tracking-widest" aria-label="tier progress">
+                <template v-for="star in choice.maxStacks" :key="star">
+                  <span :class="star <= choice.currentStacks ? 'text-amber-300' : 'text-slate-600'">
+                    {{ star <= choice.currentStacks ? '★' : '☆' }}
+                  </span>
+                </template>
+              </span>
+            </button>
+            <button
+              v-if="offer.banishesLeft > 0 && isBanishable({ choice })"
+              type="button"
+              class="absolute -right-2 -top-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-red-500/50 bg-slate-950 text-xs font-bold text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
+              :title="`Banish ${choice.name} for the rest of this run`"
+              @click.stop="emit('banish', { upgradeId: choice.id })"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button
+            v-if="offer.rerollsLeft > 0"
+            type="button"
+            class="cursor-pointer rounded-lg border border-slate-600 px-5 py-2 text-sm font-semibold text-slate-300 transition hover:border-slate-400 hover:text-slate-100"
+            @click="emit('reroll')"
+          >
+            ↻ Reroll ({{ offer.rerollsLeft }} left this run)
+          </button>
+          <button
+            type="button"
+            class="cursor-pointer rounded-lg border border-fuchsia-500/40 px-5 py-2 text-sm font-semibold text-fuchsia-300 transition hover:border-fuchsia-400 hover:bg-fuchsia-500/10"
+            @click="isGlossaryOpen = true"
+          >
+            ⛓ Synergies
+          </button>
+          <p v-if="offer.banishesLeft > 0" class="text-xs text-slate-500">
+            ✕ banishes a card for the run ({{ offer.banishesLeft }} left)
+          </p>
+        </div>
       </div>
     </div>
 
