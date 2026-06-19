@@ -5168,7 +5168,11 @@ export class GameScene extends Phaser.Scene {
     // this is a no-op for them and for normal play).
     const recorded =
       this.isSandbox === true ? Math.min(finalAmount, Math.max(0, enemy.hp)) : finalAmount
-    this.damageBySource.set(source, (this.damageBySource.get(source) ?? 0) + recorded)
+    // only log real damage — a 0-damage hit (e.g. the boss-death shockwave) must
+    // not spawn an empty source row in the run recap
+    if (recorded > 0) {
+      this.damageBySource.set(source, (this.damageBySource.get(source) ?? 0) + recorded)
+    }
     enemy.hp -= finalAmount
     this.spawnDamageNumber({ x: enemy.image.x, y: enemy.image.y, amount: finalAmount, isCrit })
     if (this.suppressVisuals === false) {

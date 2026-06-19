@@ -583,13 +583,13 @@ export const SANDBOX_STREAM = {
 
 /** strafing run × nanite swarm: the jet parachutes supply crates that pay a boon on landing */
 export const AIRDROP = {
-  dropIntervalMsBase: 1_600,
-  dropIntervalStepMs: 220,
-  minDropIntervalMs: 800,
+  dropIntervalMsBase: 2_600,
+  dropIntervalStepMs: 250,
+  minDropIntervalMs: 1_500,
   fallSpeedPxPerSec: 70,
   /** integrity restored by a repair crate (+ per level) */
-  repairIntegrity: 14,
-  repairPerLevel: 4,
+  repairIntegrity: 10,
+  repairPerLevel: 3,
   /** stardust banked by a supply crate (+ per level) — kept small; it compounds across runs */
   stardust: 3,
   stardustPerLevel: 1,
