@@ -39,7 +39,7 @@ export const PATCH_NOTES: Array<PatchEntry> = [
       },
       {
         kind: 'new',
-        text: 'New synergy — Chain Reaction (Flak Gun ★2 + Devourer Swarm ★2): flak bursts are now unstable. Every detonation touches off fresh flak bursts on nearby invaders, which set off still more — a chain reaction that ripples through a packed swarm. Ranking it up adds more branches per burst.',
+        text: 'New synergy — Chain Reaction (Flak Gun ★2 + Devourer Swarm ★2): flak bursts are now unstable. Every detonation touches off fresh flak bursts on nearby invaders, which set off still more — a chain reaction that ripples through a packed swarm. Ranking it up adds more branches per burst. It replaces Salvage Protocol on the Flak × Devourer pair (one synergy per pair).',
       },
     ],
   },

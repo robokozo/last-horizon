@@ -86,7 +86,6 @@ export interface RunStats {
   magnetLevel: number
   smokescreenLevel: number
   cryoLevel: number
-  salvageLevel: number
   momentumLevel: number
   airdropLevel: number
   seekerLevel: number

@@ -188,7 +188,6 @@ export const BASE_RUN_STATS: RunStats = {
   magnetLevel: 0,
   smokescreenLevel: 0,
   cryoLevel: 0,
-  salvageLevel: 0,
   momentumLevel: 0,
   airdropLevel: 0,
   seekerLevel: 0,
@@ -328,13 +327,6 @@ export const SYNERGIES = {
     chillMsBase: 1_200,
     chillMsPerLevel: 400,
     chillSlowFactor: 0.65,
-  },
-  /** devourer × flak: a consumed host bursts into a small ring of flak fragments */
-  salvage: {
-    fragmentsBase: 3,
-    fragmentsPerLevel: 1,
-    damageMultBase: 0.35,
-    damageMultPerLevel: 0.1,
   },
   /**
    * flak × devourer: a flak burst chain-reacts — it touches off fresh flak bursts

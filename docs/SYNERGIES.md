@@ -38,7 +38,7 @@ Design rules (established in play):
 | Incendiary Rounds | Salvo × Flame | main-gun bullets ignite their targets |
 | Momentum | Salvo × Rocket | main-gun kills shave the rocket cooldown |
 | Twin Rails | Salvo × Rail Gun | extra rail beams strike separate targets |
-| Salvage Protocol | Flak × Devourer | consumed hosts burst into a small fragment ring |
+| Chain Reaction | Flak × Devourer | flak bursts touch off fresh flak bursts on nearby invaders |
 | Cryo Shells | Flak × Lock Down | fragments chill what they strike |
 | Cluster Bombs | Flak × Strafing Run | bombs burst into flak fragments |
 | Wildfire | Flame × Devourer | burning casualties ignite their neighbors |

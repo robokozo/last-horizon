@@ -551,20 +551,6 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, cryoLevel: stats.cryoLevel + 1 }),
   },
   {
-    id: 'salvage',
-    name: 'Salvage Protocol',
-    description:
-      'Synergy: when the swarm finishes consuming a host, it spits the scrap back out as a ring of flak fragments (stacks: more fragments)',
-    rarity: 'epic',
-    category: 'tactic',
-    maxStacks: BASE_MAX_STACKS,
-    requires: [
-      { id: 'devourer', stacks: 2 },
-      { id: 'flak', stacks: 2 },
-    ],
-    apply: (stats) => ({ ...stats, salvageLevel: stats.salvageLevel + 1 }),
-  },
-  {
     id: 'flakcascade',
     name: 'Chain Reaction',
     description:

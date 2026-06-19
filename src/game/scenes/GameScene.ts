@@ -1839,22 +1839,6 @@ export class GameScene extends Phaser.Scene {
       // host died (by us or anything else): the leftovers leap onward
       if (swarm.host.isDead === true) {
         swarm.isDead = true
-        // salvage protocol synergy: the consumed host bursts into flak fragments
-        if (this.stats.salvageLevel > 0) {
-          this.spawnFragmentRing({
-            x: swarm.x,
-            y: swarm.y,
-            count:
-              SYNERGIES.salvage.fragmentsBase +
-              SYNERGIES.salvage.fragmentsPerLevel * (this.stats.salvageLevel - 1),
-            damage:
-              this.stats.damage *
-              (SYNERGIES.salvage.damageMultBase +
-                SYNERGIES.salvage.damageMultPerLevel * (this.stats.salvageLevel - 1)),
-            source: 'flak',
-            travelPx: FLAK.fragmentTravelPx,
-          })
-        }
         if (swarm.remainingBudget <= 0) {
           continue
         }
@@ -4929,7 +4913,7 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
-  /** an even ring of flak fragments — cluster bombs and salvage bursts share it */
+  /** an even ring of flak fragments — cluster bombs use it */
   private spawnFragmentRing({
     x,
     y,
@@ -5287,7 +5271,7 @@ export class GameScene extends Phaser.Scene {
       case 'railgun':
         return this.stats.twinRailLevel > 0
       case 'flak':
-        return this.stats.barrageLevel > 0 || this.stats.salvageLevel > 0
+        return this.stats.barrageLevel > 0 || this.stats.flakCascadeLevel > 0
       case 'rocket':
         return this.stats.seekerLevel > 0 || this.stats.casLevel > 0
       case 'lance':
