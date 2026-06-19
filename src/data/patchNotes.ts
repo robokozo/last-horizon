@@ -43,11 +43,11 @@ export const PATCH_NOTES: Array<PatchEntry> = [
       },
       {
         kind: 'balance',
-        text: 'Tungsten Core (paragon notable) drops projectile pierce for dense rounds: +0.5× critical-hit damage — the board’s only crit-damage source, the keystone of a crit build. Pierce is now reserved for the weapons that earn it.',
+        text: 'Tungsten Core (paragon notable) drops projectile pierce for dense rounds: +0.5× critical-hit damage, pairing with the offense branch’s crit chance to anchor a crit build. Pierce is now reserved for the weapons that earn it.',
       },
       {
         kind: 'balance',
-        text: 'Dust Siphon (reactor paragon) now pays +2 stardust for every wave you reach instead of a slow per-minute trickle — passive earning that finally rewards pushing deep.',
+        text: 'Dust Siphon (reactor paragon) drops its slow per-minute trickle for passive stardust that scales with the square of the wave you reach — a deep run pays far more than farming quick early waves.',
       },
     ],
   },

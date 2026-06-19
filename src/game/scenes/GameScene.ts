@@ -5524,8 +5524,9 @@ export class GameScene extends Phaser.Scene {
       (this.kills * STARDUST.perKill +
         this.wave * STARDUST.perWave +
         this.level * STARDUST.perLevel +
-        // dust siphons: passive stardust that scales with how deep the run pushed
-        this.stats.passiveDustPerWave * this.wave +
+        // dust siphons: passive stardust scaling with the SQUARE of the wave reached,
+        // so a deep run out-earns farming quick early waves
+        (this.stats.passiveDustPerWave * this.wave * this.wave) / STARDUST.passiveWaveDivisor +
         this.bonusStardust) *
         this.stardustMultiplier,
     )

@@ -51,6 +51,12 @@ export const STARDUST = {
   perKill: 0.25,
   perWave: 10,
   perLevel: 2,
+  /**
+   * Dust Siphon passive payout = passiveDustPerWave × wave² ⁄ this. Scaling with
+   * the SQUARE of the wave reached means a deep run pays far more per minute than
+   * repeatedly farming quick early waves.
+   */
+  passiveWaveDivisor: 16,
 } as const
 
 /**

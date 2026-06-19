@@ -257,8 +257,7 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
     notable: {
       name: 'Tungsten Core',
       icon: '💢',
-      description:
-        'Dense rounds: critical hits deal +0.5× damage (the board’s only crit-damage source)',
+      description: 'Dense rounds: critical hits deal +0.5× damage',
       effects: [{ stat: 'critMultiplierFlat', amount: 0.5 }],
     },
     keystone: {
@@ -414,8 +413,9 @@ const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
       primary: {
         name: 'Dust Siphon',
         icon: '🌫️',
-        description: '+2 stardust for every wave you reach',
-        effects: [{ stat: 'passivePerWaveFlat', amount: 2 }],
+        description:
+          'Banks passive stardust that scales with the wave you reach — push deep, not shallow',
+        effects: [{ stat: 'passivePerWaveFlat', amount: 1 }],
       },
       secondary: {
         name: 'Compound Cells',
