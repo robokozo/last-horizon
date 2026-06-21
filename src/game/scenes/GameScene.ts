@@ -1370,17 +1370,20 @@ export class GameScene extends Phaser.Scene {
       // (as it always has) while also heaving up and down between the hover line
       // and a lower altitude near the city
       if (enemy.definition.kind === 'mothership') {
-        if (enemy.directionX === 0) {
-          // still descending to the hover line
+        // gate the fly-in on POSITION, not directionX: the boss spawns with a tiny
+        // non-zero directionX (cos(π/2) ≈ 6e-17), so an === 0 test would never fire
+        if (enemy.image.y < this.bossHoverY()) {
+          // fly straight down from the top to the hover line
+          enemy.directionX = 0
           enemy.directionY = 1
           enemy.image.y += speed * seconds
-          if (enemy.image.y >= this.bossHoverY()) {
-            // arrived: start drifting sideways and heaving downward into the bob
+        } else {
+          // arrived: pick a drift direction once, then switch to the slow drift speed
+          if (enemy.directionX === 0) {
             enemy.directionX = Math.random() < 0.5 ? -1 : 1
             enemy.directionY = 1
             enemy.speed = BOSS.driftSpeedPxPerSec
           }
-        } else {
           // side-to-side drift, bouncing off the arena edges
           if (enemy.image.x < 140) {
             enemy.directionX = 1
