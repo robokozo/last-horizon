@@ -55,6 +55,8 @@ export interface RunStats {
   lanceLevel: number
   mineLevel: number
   orbitalLaserLevel: number
+  /** graviton well: a battlefield utility that drags invaders into a tight clump */
+  gravitonLevel: number
   /** synergy tactics — only offered once both parent weapons are ranked up */
   stormLevel: number
   clusterLevel: number

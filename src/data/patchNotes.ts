@@ -21,6 +21,17 @@ export interface PatchEntry {
  */
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
+    date: '2026-06-21',
+    title: 'Event Horizon',
+    blurb: 'A new weapon that gathers the swarm into a neat little ball for you.',
+    notes: [
+      {
+        kind: 'new',
+        text: 'New weapon — Graviton Well: periodically collapses a gravity well over the densest cluster, dragging invaders into a tight ball. It deals no damage on its own — its whole job is to herd the swarm so your flak, rockets, nova, and orbital strikes land on everything at once. Ranking it up means a stronger pull, wider reach, longer hold, and a shorter cooldown.',
+      },
+    ],
+  },
+  {
     date: '2026-06-20',
     title: 'Thicker Smoke',
     blurb: 'Smokescreen finally pulls its weight — and the game shows you what changed.',

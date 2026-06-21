@@ -17,6 +17,7 @@ import {
   BOSS,
   CLUSTER_BOMBS,
   FILLER_REWARDS,
+  GRAVITON,
   GROUND,
   LANCE,
   LOCKDOWN,
@@ -205,6 +206,18 @@ interface OrbitalPulseUnit {
   tickAccumulatorMs: number
   column: Phaser.GameObjects.Rectangle | null
   glow: Phaser.GameObjects.Arc | null
+  isDead: boolean
+}
+
+/** graviton well: an open gravity well that drags invaders toward its center */
+interface GravitonWellUnit {
+  x: number
+  y: number
+  radius: number
+  pullSpeedPxPerSec: number
+  remainingMs: number
+  core: Phaser.GameObjects.Arc | null
+  ring: Phaser.GameObjects.Arc | null
   isDead: boolean
 }
 
@@ -433,6 +446,7 @@ export class GameScene extends Phaser.Scene {
   private airstrikeAccumulatorMs = 0
   private bfgAccumulatorMs = 0
   private orbitalAccumulatorMs = 0
+  private gravitonAccumulatorMs = 0
   private stormAccumulatorMs = 0
   private aegisAccumulatorMs = 0
   private hudAccumulatorMs = 0
@@ -501,6 +515,7 @@ export class GameScene extends Phaser.Scene {
   private stasisMissiles: Array<StasisMissileUnit> = []
   private orbitalStrikes: Array<OrbitalStrikeUnit> = []
   private orbitalPulses: Array<OrbitalPulseUnit> = []
+  private gravitonWells: Array<GravitonWellUnit> = []
   private ionTrails: Array<IonTrailUnit> = []
   private naniteDrones: Array<Phaser.GameObjects.Image> = []
   private shieldImage!: Phaser.GameObjects.Image
@@ -785,6 +800,11 @@ export class GameScene extends Phaser.Scene {
       pulse.glow?.destroy()
     }
     this.orbitalPulses = []
+    for (const well of this.gravitonWells) {
+      well.core?.destroy()
+      well.ring?.destroy()
+    }
+    this.gravitonWells = []
     this.ionTrails = []
     this.dummyRespawnQueue = []
 
@@ -800,6 +820,7 @@ export class GameScene extends Phaser.Scene {
     this.airstrikeAccumulatorMs = 0
     this.bfgAccumulatorMs = 0
     this.orbitalAccumulatorMs = 0
+    this.gravitonAccumulatorMs = 0
     this.stormAccumulatorMs = 0
     this.aegisAccumulatorMs = 0
 
@@ -1035,6 +1056,7 @@ export class GameScene extends Phaser.Scene {
     this.updateCapacitor({ delta })
     this.updateMines({ delta })
     this.updateOrbitalLaser({ delta })
+    this.updateGravitonWells({ delta })
     this.updateStormFront({ delta })
     this.updateIonTrails({ delta })
     this.updateBossSpawners({ delta })
@@ -3041,6 +3063,8 @@ export class GameScene extends Phaser.Scene {
         return this.stats.mineLevel
       case 'orbital-laser':
         return this.stats.orbitalLaserLevel
+      case 'graviton':
+        return this.stats.gravitonLevel
       default:
         return 0
     }
@@ -4311,30 +4335,13 @@ export class GameScene extends Phaser.Scene {
         continue
       }
       if (magnetRadius > 0) {
-        for (const enemy of this.enemies) {
-          // the mothership is far too heavy for a balloon magnet
-          if (enemy.isDead === true || enemy.definition.kind === 'mothership') {
-            continue
-          }
-          const towardX = mine.image.x - enemy.image.x
-          const towardY = mine.image.y - enemy.image.y
-          const distance = Math.hypot(towardX, towardY)
-          if (distance > magnetRadius || distance < 1) {
-            continue
-          }
-          const stepPx = magnetSpeed * seconds
-          const moveX = (towardX / distance) * stepPx
-          const moveY = (towardY / distance) * stepPx
-          enemy.image.x += moveX
-          enemy.image.y += moveY
-          // weavers and patrollers compute x from a base — drag it along too
-          if (enemy.zigzag !== null) {
-            enemy.zigzag.baseX += moveX
-          }
-          if (enemy.patrol !== null) {
-            enemy.patrol.baseX += moveX
-          }
-        }
+        this.pullEnemiesToward({
+          x: mine.image.x,
+          y: mine.image.y,
+          radius: magnetRadius,
+          speedPxPerSec: magnetSpeed,
+          delta,
+        })
       }
       for (const enemy of this.enemies) {
         if (enemy.isDead === true) {
@@ -4605,6 +4612,126 @@ export class GameScene extends Phaser.Scene {
       }
     }
     this.orbitalPulses = this.orbitalPulses.filter((pulse) => pulse.isDead === false)
+  }
+
+  // ── graviton well ──────────────────────────────────────────────────────
+
+  /**
+   * Drag every nearby invader one frame's step toward a point. Shared by the
+   * balloon-mine magnet and the graviton well. Motherships are too heavy to pull,
+   * and weavers/patrollers track a base-x that must be dragged along with them.
+   */
+  private pullEnemiesToward({
+    x,
+    y,
+    radius,
+    speedPxPerSec,
+    delta,
+  }: {
+    x: number
+    y: number
+    radius: number
+    speedPxPerSec: number
+    delta: number
+  }): void {
+    const stepPx = speedPxPerSec * (delta / 1_000)
+    for (const enemy of this.enemies) {
+      if (enemy.isDead === true || enemy.definition.kind === 'mothership') {
+        continue
+      }
+      const towardX = x - enemy.image.x
+      const towardY = y - enemy.image.y
+      const distance = Math.hypot(towardX, towardY)
+      if (distance > radius || distance < 1) {
+        continue
+      }
+      // never overshoot the center — pull at most to the point itself
+      const travel = Math.min(stepPx, distance)
+      const moveX = (towardX / distance) * travel
+      const moveY = (towardY / distance) * travel
+      enemy.image.x += moveX
+      enemy.image.y += moveY
+      if (enemy.zigzag !== null) {
+        enemy.zigzag.baseX += moveX
+      }
+      if (enemy.patrol !== null) {
+        enemy.patrol.baseX += moveX
+      }
+    }
+  }
+
+  private updateGravitonWells({ delta }: { delta: number }): void {
+    if (this.stats.gravitonLevel > 0) {
+      this.gravitonAccumulatorMs += delta
+      const interval = this.weaponIntervalMs({ weaponId: 'graviton' })
+      if (this.gravitonAccumulatorMs >= interval) {
+        const target = this.findClusterTarget()
+        if (target === null) {
+          // hold the charge until a cluster forms, so the first well never wastes
+          this.gravitonAccumulatorMs = interval
+        } else {
+          this.gravitonAccumulatorMs = 0
+          this.spawnGravitonWell({ x: target.image.x, y: target.image.y })
+        }
+      }
+    }
+
+    if (this.gravitonWells.length === 0) {
+      return
+    }
+    for (const well of this.gravitonWells) {
+      if (well.isDead === true) {
+        continue
+      }
+      this.pullEnemiesToward({
+        x: well.x,
+        y: well.y,
+        radius: well.radius,
+        speedPxPerSec: well.pullSpeedPxPerSec,
+        delta,
+      })
+      if (well.ring !== null) {
+        // a slow spin and a gentle breathing pulse to read as an active well
+        well.ring.rotation += delta / 400
+        const pulse = 0.9 + Math.sin((this.elapsedMs / 1_000) * 6) * 0.1
+        well.ring.setScale(pulse)
+      }
+      well.remainingMs -= delta
+      if (well.remainingMs <= 0) {
+        well.isDead = true
+        well.core?.destroy()
+        well.ring?.destroy()
+      }
+    }
+    this.gravitonWells = this.gravitonWells.filter((well) => well.isDead === false)
+  }
+
+  private spawnGravitonWell({ x, y }: { x: number; y: number }): void {
+    const level = this.stats.gravitonLevel
+    const radius = GRAVITON.radiusBase + GRAVITON.radiusPerLevel * (level - 1)
+    const pullSpeedPxPerSec = GRAVITON.pullSpeedBase + GRAVITON.pullSpeedPerLevel * (level - 1)
+    const remainingMs = GRAVITON.durationMsBase + GRAVITON.durationMsPerLevel * (level - 1)
+
+    let core: Phaser.GameObjects.Arc | null = null
+    let ring: Phaser.GameObjects.Arc | null = null
+    if (this.suppressVisuals === false) {
+      // a dark accretion ring with a void core — reads as a gravity well, not a blast
+      ring = this.add.circle(x, y, radius, 0x7c3aed, 0.12).setDepth(DEPTHS.effects)
+      ring.setStrokeStyle(3, 0xa855f7, 0.6)
+      core = this.add.circle(x, y, radius * 0.22, 0x1e1b4b, 0.85).setDepth(DEPTHS.effects)
+      core.setStrokeStyle(2, 0xc4b5fd, 0.9)
+    }
+
+    this.gravitonWells.push({
+      x,
+      y,
+      radius,
+      pullSpeedPxPerSec,
+      remainingMs,
+      core,
+      ring,
+      isDead: false,
+    })
   }
 
   private fireOrbitalStrike({ strike }: { strike: OrbitalStrikeUnit }): void {

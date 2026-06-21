@@ -9,6 +9,7 @@ import {
   DEVOURER,
   FLAK,
   FLAME,
+  GRAVITON,
   LANCE,
   LOCKDOWN,
   MINES,
@@ -79,6 +80,11 @@ const INTERVAL_RAMP: Record<string, { base: number; step: number; min: number }>
     base: ORBITAL_LASER.baseIntervalMs,
     step: ORBITAL_LASER.intervalStepMs,
     min: ORBITAL_LASER.minIntervalMs,
+  },
+  graviton: {
+    base: GRAVITON.baseIntervalMs,
+    step: GRAVITON.intervalStepMs,
+    min: GRAVITON.minIntervalMs,
   },
   storm: {
     base: STORM_FRONT.baseIntervalMs,
@@ -288,6 +294,24 @@ const EFFECT_BUILDERS: Record<string, EffectBuilder> = {
       unit: 'px',
     },
     { label: 'Cooldown', value: reload('orbital-laser', level, stats), unit: 'sec' },
+  ],
+  graviton: ({ stats, level }) => [
+    {
+      label: 'Pull radius',
+      value: ramp(GRAVITON.radiusBase, GRAVITON.radiusPerLevel, level),
+      unit: 'px',
+    },
+    {
+      label: 'Pull speed',
+      value: ramp(GRAVITON.pullSpeedBase, GRAVITON.pullSpeedPerLevel, level),
+      unit: 'px',
+    },
+    {
+      label: 'Duration',
+      value: ramp(GRAVITON.durationMsBase, GRAVITON.durationMsPerLevel, level),
+      unit: 'sec',
+    },
+    { label: 'Cooldown', value: reload('graviton', level, stats), unit: 'sec' },
   ],
   lockdown: ({ stats, level }) => [
     {

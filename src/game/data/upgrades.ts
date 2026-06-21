@@ -188,6 +188,16 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, orbitalLaserLevel: stats.orbitalLaserLevel + 1 }),
   },
   {
+    id: 'graviton',
+    name: 'Graviton Well',
+    description:
+      'Periodically collapses a gravity well over the densest cluster, dragging invaders into a tight ball for your other weapons to delete — deals no damage itself (stacks: stronger pull, wider, longer, faster cooldown)',
+    rarity: 'epic',
+    category: 'weapon',
+    maxStacks: BASE_MAX_STACKS,
+    apply: (stats) => ({ ...stats, gravitonLevel: stats.gravitonLevel + 1 }),
+  },
+  {
     id: 'storm',
     name: 'Storm Front',
     description:

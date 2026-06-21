@@ -158,6 +158,7 @@ export const BASE_RUN_STATS: RunStats = {
   lanceLevel: 0,
   mineLevel: 0,
   orbitalLaserLevel: 0,
+  gravitonLevel: 0,
   stormLevel: 0,
   clusterLevel: 0,
   shatterLevel: 0,
@@ -608,6 +609,26 @@ export const CLOUD = {
   activeAlpha: 0.26,
   /** every cloud grows by this fraction per rank past the first — bigger banks cover more sky */
   scalePerLevel: 0.12,
+} as const
+
+/**
+ * Graviton Well: a battlefield-wide utility (like the orbital laser) that opens a
+ * gravity well over the densest cluster, dragging invaders into a tight ball for
+ * your AoE to delete. It deals no damage itself — its whole job is to set the table.
+ */
+export const GRAVITON = {
+  baseIntervalMs: 7_000,
+  intervalStepMs: 600,
+  minIntervalMs: 3_800,
+  /** how long each well stays open and pulling */
+  durationMsBase: 1_800,
+  durationMsPerLevel: 250,
+  /** the well's reach */
+  radiusBase: 130,
+  radiusPerLevel: 20,
+  /** how fast invaders are dragged toward the center (px/sec) */
+  pullSpeedBase: 75,
+  pullSpeedPerLevel: 18,
 } as const
 
 /** generic consolation cards offered when the real card pool runs dry */
