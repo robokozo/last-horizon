@@ -21,6 +21,21 @@ export interface PatchEntry {
  */
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
+    date: '2026-06-20',
+    title: 'Thicker Smoke',
+    blurb: 'Smokescreen finally pulls its weight — and the game shows you what changed.',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'Smokescreen (Mine Layer × Cloud Cover) now leaves far more room for its smoke. The banks share the Cloud Cover deck as before, but the ceiling is raised much higher per rank (+6 clouds per level instead of +2), so detonations keep laying down fresh slowing smoke instead of hitting the cap almost immediately.',
+      },
+      {
+        kind: 'new',
+        text: 'The game now pops a “What’s New” summary the first time you load a new version, so you never miss a balance change or a fresh synergy.',
+      },
+    ],
+  },
+  {
     date: '2026-06-19',
     title: 'Roaming Beam',
     blurb: 'The rail gun reaches forever, and the orbital strike learns to walk.',

@@ -318,9 +318,13 @@ export const SYNERGIES = {
     pullSpeedPxPerSecBase: 35,
     pullSpeedPxPerSecPerLevel: 12,
   },
-  /** mine layer × cloud cover: detonations leave a slowing smoke bank */
+  /**
+   * mine layer × cloud cover: detonations leave a slowing smoke bank. The smoke
+   * shares Cloud Cover's deck but raises the ceiling well above it, so there's
+   * real room for fresh banks even when the cover deck is already full.
+   */
   smokescreen: {
-    extraCloudCapPerLevel: 2,
+    extraCloudCapPerLevel: 6,
   },
   /** flak × lock down: fragments chill what they strike */
   cryoshells: {

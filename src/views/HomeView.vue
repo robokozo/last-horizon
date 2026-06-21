@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { useLocalStorage } from '@vueuse/core'
+import { onMounted, ref } from 'vue'
 
 import SaveTransfer from '@/components/SaveTransfer.vue'
 import SynergyGlossary from '@/components/SynergyGlossary.vue'
+import WhatsNewOverlay from '@/components/WhatsNewOverlay.vue'
+import { PATCH_NOTES } from '@/data/patchNotes'
 import { damageNumbersEnabled, screenShakeEnabled } from '@/game/settings'
 import { soundEngine } from '@/game/sound'
 import { SKILL_NODES } from '@/skills/skillTree'
@@ -12,6 +15,25 @@ const metaStore = useMetaStore()
 
 const isGlossaryOpen = ref(false)
 const isConfirmingReset = ref(false)
+
+// ── "what's new" on a fresh version ────────────────────────────────────
+// The newest patch entry is the current version; we remember the last one
+// the player saw and pop the changes the first time a new version loads.
+const latestPatch = PATCH_NOTES[0]
+const latestPatchKey = `${latestPatch.date}-${latestPatch.title}`
+const lastSeenPatch = useLocalStorage('pd-last-seen-patch', '')
+const isWhatsNewOpen = ref(false)
+
+onMounted(() => {
+  if (lastSeenPatch.value !== latestPatchKey) {
+    isWhatsNewOpen.value = true
+  }
+})
+
+function dismissWhatsNew(): void {
+  lastSeenPatch.value = latestPatchKey
+  isWhatsNewOpen.value = false
+}
 
 // DEV ONLY — gated to the dev server (import.meta.env.DEV is false in prod, so the
 // panel never renders for real players). Temporary helpers for testing the prestige
@@ -402,5 +424,10 @@ function onClearHistoryClick(): void {
     </section>
 
     <SynergyGlossary v-if="isGlossaryOpen === true" @close="isGlossaryOpen = false" />
+    <WhatsNewOverlay
+      v-if="isWhatsNewOpen === true"
+      :entry="latestPatch"
+      @close="dismissWhatsNew()"
+    />
   </main>
 </template>
