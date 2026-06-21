@@ -522,7 +522,7 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     id: 'magnet',
     name: 'Magnetic Mines',
     description:
-      'Synergy: armed mines project a magnetic field, dragging nearby invaders into their blast radius (stacks: wider, stronger pull)',
+      'Synergy: armed mines are magnetized to the enemy — each one homes in on the nearest invader and chases it down to detonate (stacks: wider attraction, faster homing)',
     rarity: 'epic',
     category: 'tactic',
     maxStacks: BASE_MAX_STACKS,

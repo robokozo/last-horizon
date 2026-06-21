@@ -29,6 +29,10 @@ export const PATCH_NOTES: Array<PatchEntry> = [
         kind: 'new',
         text: 'New weapon — Graviton Well: periodically collapses a gravity well over the densest cluster, dragging invaders into a tight ball. It deals no damage on its own — its whole job is to herd the swarm so your flak, rockets, nova, and orbital strikes land on everything at once. Ranking it up means a stronger pull, wider reach, longer hold, and a shorter cooldown.',
       },
+      {
+        kind: 'balance',
+        text: 'Magnetic Mines (Tesla Arc × Balloon Mines) is reworked: instead of dragging invaders toward a stationary mine, the armed mine now magnetizes to the enemy — it homes in on the nearest invader and chases it down to detonate. Ranking it up widens the sensing range and speeds up the homing.',
+      },
     ],
   },
   {

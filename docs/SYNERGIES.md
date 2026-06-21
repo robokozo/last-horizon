@@ -53,7 +53,7 @@ Design rules (established in play):
 | Storm Front | Tesla Arc × Cloud Cover | clouds discharge lightning at invaders inside |
 | Ion Rail | Tesla Arc × Rail Gun | beams leave an ionized line that zaps crossers |
 | Arc Capacitor | Tesla Arc × BFG | post-discharge bolts stun survivors |
-| Magnetic Mines | Tesla Arc × Balloon Mines | armed mines drag invaders into their blast radius |
+| Magnetic Mines | Tesla Arc × Balloon Mines | armed mines home toward the nearest invader and chase it down |
 | Stasis Wave | Nova × Lock Down | pulses flash-freeze everything they hit |
 | Capacitor Dump | Nova × BFG | each discharge fires a boosted nova from every cannon |
 | Concussive Pulse | Nova × Balloon Mines | pulses shove invaders harder (knockback is base now) |

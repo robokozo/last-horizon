@@ -4309,7 +4309,8 @@ export class GameScene extends Phaser.Scene {
     }
     this.mineShells = this.mineShells.filter((shell) => shell.isDead === false)
 
-    // magnetic mines synergy: every armed mine drags nearby invaders toward it
+    // magnetic mines synergy: an armed mine is drawn to the nearest invader and
+    // homes in on it, chasing it down rather than dragging the swarm to the mine
     const magnetRadius =
       this.stats.magnetLevel > 0
         ? SYNERGIES.magnet.pullRadiusPxBase +
@@ -4323,25 +4324,39 @@ export class GameScene extends Phaser.Scene {
       if (mine.isDead === true) {
         continue
       }
-      // the balloon slowly lifts the mine, holding just under the top of the sky
-      if (mine.baseY > MINE_CEILING_Y) {
+      // an armed magnetic mine homes toward the nearest invader; the homing pull
+      // overrides the balloon's passive lift while a target is in range
+      let isHoming = false
+      if (magnetRadius > 0 && mine.armRemainingMs <= 0) {
+        const [target] = this.findNearestEnemiesInRange({
+          originX: mine.image.x,
+          originY: mine.image.y,
+          count: 1,
+          range: magnetRadius,
+        })
+        if (target !== undefined) {
+          isHoming = true
+          const towardX = target.image.x - mine.image.x
+          const towardY = target.image.y - mine.baseY
+          const distance = Math.hypot(towardX, towardY)
+          if (distance > 1) {
+            const travel = Math.min(magnetSpeed * seconds, distance)
+            mine.image.x += (towardX / distance) * travel
+            mine.baseY += (towardY / distance) * travel
+          }
+        }
+      }
+      // the balloon slowly lifts an idle mine, holding it just under the top of the sky
+      if (isHoming === false && mine.baseY > MINE_CEILING_Y) {
         mine.baseY = Math.max(MINE_CEILING_Y, mine.baseY - MINE_RISE_SPEED_PX_PER_SEC * seconds)
       }
       const bobOffsetY = Math.sin((this.elapsedMs / 1_000) * 1.6 + mine.bobPhase) * 3
       mine.image.y = mine.baseY + bobOffsetY
+      mine.balloonImage.x = mine.image.x
       mine.balloonImage.y = mine.baseY + bobOffsetY - MINE_BALLOON_OFFSET_Y
       if (mine.armRemainingMs > 0) {
         mine.armRemainingMs -= delta
         continue
-      }
-      if (magnetRadius > 0) {
-        this.pullEnemiesToward({
-          x: mine.image.x,
-          y: mine.image.y,
-          radius: magnetRadius,
-          speedPxPerSec: magnetSpeed,
-          delta,
-        })
       }
       for (const enemy of this.enemies) {
         if (enemy.isDead === true) {

@@ -312,10 +312,12 @@ export const SYNERGIES = {
     knockbackPxBase: 70,
     knockbackPxPerLevel: 30,
   },
-  /** balloon mines × tesla arc: armed mines drag nearby invaders into their blast radius */
+  /** balloon mines × tesla arc: armed mines home toward the nearest invader and chase it down */
   magnet: {
+    /** how far a mine can sense an invader to start homing */
     pullRadiusPxBase: 120,
     pullRadiusPxPerLevel: 25,
+    /** how fast the mine itself flies toward its target */
     pullSpeedPxPerSecBase: 35,
     pullSpeedPxPerSecPerLevel: 12,
   },
