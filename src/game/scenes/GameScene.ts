@@ -187,7 +187,7 @@ interface MineUnit {
   image: Phaser.GameObjects.Image
   /** the balloon tethered above the mine */
   balloonImage: Phaser.GameObjects.Image
-  /** the mine's logical altitude — sits at ground level unless a magnet homes it */
+  /** the mine's logical altitude — starts at the ground and floats up to its station */
   baseY: number
   /** randomizes the bobbing motion so mines don't sway in lockstep */
   bobPhase: number
@@ -383,8 +383,11 @@ const DUMMY_PATROL_PERIOD_S = 5
 const DUMMY_RESPAWN_MS = 1_500
 /** how far above its mine the balloon floats */
 const MINE_BALLOON_OFFSET_Y = 24
-/** how far above the ground a deployed mine sits */
+/** the height a freshly inflated mine starts at, just above the ground */
 const MINE_GROUND_OFFSET = 14
+/** how fast an inflated balloon carries its mine up off the ground, px/s */
+const MINE_RISE_SPEED_PX_PER_SEC = 80
+/** the altitude a balloon mine floats up to and holds, near the top of the sky */
 const MINE_CEILING_Y = 80
 
 const COOLDOWN_BAR_WIDTH = 30
@@ -4615,8 +4618,9 @@ export class GameScene extends Phaser.Scene {
       if (mine.isDead === true) {
         continue
       }
-      // an armed magnetic mine homes toward the nearest invader, chasing it down
-      // (otherwise the mine just sits on the ground waiting for something to wander in)
+      // an armed magnetic mine homes toward the nearest invader, chasing it down;
+      // the homing pull overrides the balloon's passive rise while a target is in range
+      let isHoming = false
       if (magnetRadius > 0 && mine.armRemainingMs <= 0) {
         const [target] = this.findNearestEnemiesInRange({
           originX: mine.image.x,
@@ -4625,6 +4629,7 @@ export class GameScene extends Phaser.Scene {
           range: magnetRadius,
         })
         if (target !== undefined) {
+          isHoming = true
           const towardX = target.image.x - mine.image.x
           const towardY = target.image.y - mine.baseY
           const distance = Math.hypot(towardX, towardY)
@@ -4634,6 +4639,10 @@ export class GameScene extends Phaser.Scene {
             mine.baseY += (towardY / distance) * travel
           }
         }
+      }
+      // the inflated balloon gently carries an idle mine up off the ground to its station
+      if (isHoming === false && mine.baseY > MINE_CEILING_Y) {
+        mine.baseY = Math.max(MINE_CEILING_Y, mine.baseY - MINE_RISE_SPEED_PX_PER_SEC * seconds)
       }
       const bobOffsetY = Math.sin((this.elapsedMs / 1_000) * 1.6 + mine.bobPhase) * 3
       mine.image.y = mine.baseY + bobOffsetY
@@ -4702,7 +4711,7 @@ export class GameScene extends Phaser.Scene {
       duration: 250,
       ease: 'Back.easeOut',
     })
-    // blinking arming light (bobbing is simulated in updateMines)
+    // blinking arming light (bobbing and the float-up are simulated in updateMines)
     this.tweens.add({
       targets: image,
       alpha: 0.55,

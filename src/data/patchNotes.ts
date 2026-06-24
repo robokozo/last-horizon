@@ -27,7 +27,7 @@ export const PATCH_NOTES: Array<PatchEntry> = [
     notes: [
       {
         kind: 'balance',
-        text: 'Balloon Mines no longer lob into the air and drift up to the ceiling. They now plant on the ground right beside the gun that fired them and hold their station, waiting for invaders to come to them (Magnetic Mines still homes them onto targets).',
+        text: 'Balloon Mines are no longer lobbed into the sky. They now inflate on the ground right beside the gun that fired them and gently float up from there to take station (Magnetic Mines still homes them onto targets).',
       },
     ],
   },
