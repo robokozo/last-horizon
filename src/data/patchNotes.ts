@@ -22,6 +22,17 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Range Tidy-up',
+    blurb: 'Training Range presets speak the perk shop’s language.',
+    notes: [
+      {
+        kind: 'fix',
+        text: 'Training Range controls now match the perk shop: the build preset is labelled “Perks” with None / Legendary / Full options (instead of the old “Paragon / keystones”), and the manual card cap goes one tier higher to match the Weapon Level Cap perk.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'On Target',
     blurb: 'Training Range targets stay in range on mobile.',
     notes: [
