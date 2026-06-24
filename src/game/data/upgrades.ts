@@ -821,8 +821,14 @@ export function rollUpgradeChoices({
     synergyOf: describeSynergyRequirements({ definition }),
   }))
 
-  // the pool ran dry (everything maxed or gated) — pad with consolation picks
-  for (const filler of buildFillerChoices({ wave })) {
+  // the pool ran dry (everything maxed or gated) — pad with consolation picks,
+  // shuffled so the same fillers don't always show in the same slots each level
+  const fillers = buildFillerChoices({ wave })
+  for (let index = fillers.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(roll() * (index + 1))
+    ;[fillers[index], fillers[swap]] = [fillers[swap], fillers[index]]
+  }
+  for (const filler of fillers) {
     if (choices.length >= count) {
       break
     }
