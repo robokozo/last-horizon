@@ -234,10 +234,15 @@ export const useMetaStore = defineStore('meta', () => {
    * extras like lifetime stats and favorite weapons are deliberately left out.
    */
   function exportSave(): string {
+    // compact: one { id: rankCount } entry per owned perk, not an id per rank
+    const perks: Record<string, number> = {}
+    for (const id of unlockedNodeIds.value) {
+      perks[id] = (perks[id] ?? 0) + 1
+    }
     const payload = {
-      version: 2,
+      version: 3,
       stardust: stardust.value,
-      unlockedNodeIds: unlockedNodeIds.value,
+      perks,
       prestigeLevel: prestigeLevel.value,
     }
     return btoa(JSON.stringify(payload))
@@ -248,20 +253,39 @@ export const useMetaStore = defineStore('meta', () => {
       const payload = JSON.parse(atob(code.trim())) as {
         version?: number
         stardust?: number
+        /** v3: { perkId: rankCount } */
+        perks?: Record<string, number>
+        /** v2: perk ids repeated once per rank */
         unlockedNodeIds?: Array<string>
         prestigeLevel?: number
       }
-      if (
-        typeof payload.stardust !== 'number' ||
-        Array.isArray(payload.unlockedNodeIds) === false
-      ) {
+      if (typeof payload.stardust !== 'number') {
+        return false
+      }
+      // rebuild the repeated-id list, clamping each perk to its current max rank
+      const ids: Array<string> = []
+      if (payload.perks !== undefined && typeof payload.perks === 'object') {
+        for (const [id, count] of Object.entries(payload.perks)) {
+          const perk = PERKS_BY_ID.get(id)
+          if (perk === undefined || typeof count !== 'number') {
+            continue
+          }
+          const ranks = Math.max(0, Math.min(perk.maxRank, Math.floor(count)))
+          for (let rank = 0; rank < ranks; rank += 1) {
+            ids.push(id)
+          }
+        }
+      } else if (Array.isArray(payload.unlockedNodeIds)) {
+        for (const id of payload.unlockedNodeIds) {
+          if (typeof id === 'string' && PERKS_BY_ID.has(id)) {
+            ids.push(id)
+          }
+        }
+      } else {
         return false
       }
       stardust.value = payload.stardust
-      // keep only ids that exist in the current perk set (old layouts drop out)
-      unlockedNodeIds.value = payload.unlockedNodeIds.filter(
-        (nodeId): nodeId is string => typeof nodeId === 'string' && PERKS_BY_ID.has(nodeId),
-      )
+      unlockedNodeIds.value = ids
       prestigeLevel.value = typeof payload.prestigeLevel === 'number' ? payload.prestigeLevel : 0
       return true
     } catch {
