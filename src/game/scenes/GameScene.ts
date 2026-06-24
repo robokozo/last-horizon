@@ -5703,6 +5703,13 @@ export class GameScene extends Phaser.Scene {
       if (this.stats.damagePerLevelPercent > 0) {
         this.stats.damage += this.veteranBaseDamage * (this.stats.damagePerLevelPercent / 100)
       }
+      // Windfall: a chance for the level-up to also drop a free random upgrade
+      if (
+        this.stats.bonusUpgradeChancePercent > 0 &&
+        Math.random() * 100 < this.stats.bonusUpgradeChancePercent
+      ) {
+        this.grantRandomBonusUpgrade()
+      }
     }
     if (this.pendingLevelUps > 0 && this.hasActiveOffer === false) {
       this.presentLevelUpOffer()
@@ -5772,30 +5779,35 @@ export class GameScene extends Phaser.Scene {
     this.emitLevelUpOffer()
   }
 
+  /** apply one upgrade's effects + the syncs it needs, without touching the offer flow */
+  private applyOwnedUpgrade({ upgradeId }: { upgradeId: string }): void {
+    if (isFillerUpgradeId({ upgradeId }) === true) {
+      this.applyFillerUpgrade({ upgradeId })
+      return
+    }
+    const definition = findUpgradeDefinition({ upgradeId })
+    if (definition === null) {
+      return
+    }
+    this.upgradeStacks.set(upgradeId, (this.upgradeStacks.get(upgradeId) ?? 0) + 1)
+    this.stats = definition.apply(this.stats)
+
+    if (upgradeId === 'nanite') {
+      this.syncNaniteDrones()
+    }
+    if (upgradeId === 'cloud') {
+      this.syncCloudCover()
+    }
+    for (const cannon of this.cannons) {
+      cannon.rangeRing.radius = this.stats.range
+    }
+  }
+
   private applyUpgrade({ upgradeId }: { upgradeId: string }): void {
     if (this.hasActiveOffer === false) {
       return
     }
-    if (isFillerUpgradeId({ upgradeId }) === true) {
-      this.applyFillerUpgrade({ upgradeId })
-    } else {
-      const definition = findUpgradeDefinition({ upgradeId })
-      if (definition === null) {
-        return
-      }
-      this.upgradeStacks.set(upgradeId, (this.upgradeStacks.get(upgradeId) ?? 0) + 1)
-      this.stats = definition.apply(this.stats)
-
-      if (upgradeId === 'nanite') {
-        this.syncNaniteDrones()
-      }
-      if (upgradeId === 'cloud') {
-        this.syncCloudCover()
-      }
-      for (const cannon of this.cannons) {
-        cannon.rangeRing.radius = this.stats.range
-      }
-    }
+    this.applyOwnedUpgrade({ upgradeId })
     this.syncBuildings()
 
     this.pendingLevelUps -= 1
@@ -5807,6 +5819,54 @@ export class GameScene extends Phaser.Scene {
     }
     this.hasActiveOffer = false
     this.scene.resume()
+  }
+
+  /** Windfall perk: roll one eligible upgrade and grant it for free */
+  private grantRandomBonusUpgrade(): void {
+    const choice = rollUpgradeChoices({
+      stacks: this.upgradeStacks,
+      roll: () => Math.random(),
+      count: 1,
+      wave: this.wave,
+      luck: this.stats.luck,
+      weaponSlots: this.stats.weaponSlots,
+      weaponTierBonus: this.stats.weaponTierBonus,
+      banished: this.banishedCardIds,
+    })[0]
+    if (choice === undefined) {
+      return
+    }
+    this.applyOwnedUpgrade({ upgradeId: choice.id })
+    this.syncBuildings()
+    this.emitHudSnapshot()
+    this.spawnBonusNotice({ name: choice.name })
+  }
+
+  private spawnBonusNotice({ name }: { name: string }): void {
+    if (this.suppressVisuals === true) {
+      return
+    }
+    const text = this.add
+      .text(this.arenaWidth / 2, this.cannonY - 140, `🎁 Bonus: ${name}`, {
+        fontFamily: 'Segoe UI, system-ui, sans-serif',
+        fontSize: '22px',
+        fontStyle: 'bold',
+        color: '#fbbf24',
+        stroke: '#0f172a',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: text,
+      y: text.y - 44,
+      alpha: 0,
+      duration: 1_600,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        text.destroy()
+      },
+    })
   }
 
   private applyFillerUpgrade({ upgradeId }: { upgradeId: string }): void {

@@ -115,6 +115,7 @@ export const BULLET = {
 export const BASE_RUN_STATS: RunStats = {
   damage: 10,
   damagePerLevelPercent: 0,
+  bonusUpgradeChancePercent: 0,
   cannonCount: 1,
   fireIntervalMs: 650,
   projectileCount: 1,

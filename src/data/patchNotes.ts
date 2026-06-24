@@ -41,6 +41,14 @@ export const PATCH_NOTES: Array<PatchEntry> = [
         kind: 'balance',
         text: 'Selling a perk refunds only part of what you paid (50% to start), so every purchase is a real choice. The new Reclamation perk raises that refund rate up to a 90% cap. Because progression changed shape, existing paragon progress has been refunded as stardust so you can re-spend it in the new shop.',
       },
+      {
+        kind: 'new',
+        text: 'New Legendary perk — Windfall: every level-up has a chance (up to 60% at max rank) to also drop a free random bonus upgrade on top of the card you pick.',
+      },
+      {
+        kind: 'fix',
+        text: 'Level-up cards are less cluttered: each card now shows its name and the concrete stat changes, with the longer description tucked behind a ⓘ toggle you can expand when you want the details.',
+      },
     ],
   },
   {

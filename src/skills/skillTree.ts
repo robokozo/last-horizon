@@ -40,6 +40,7 @@ export type MetaStat =
   | 'passivePerWaveFlat'
   | 'interestPercentFlat'
   | 'refundBonusPercent'
+  | 'bonusUpgradeChancePercent'
 
 export interface PerkEffect {
   stat: MetaStat
@@ -312,6 +313,17 @@ export const PERKS: Array<Perk> = [
     effects: [{ stat: 'damagePerLevelPercent', amountPerRank: 0.5 }],
   },
   {
+    id: 'windfall',
+    name: 'Windfall',
+    description:
+      '+12% chance per rank that a level-up also grants a free random bonus upgrade on top of your pick.',
+    icon: '🎁',
+    rarity: 'legendary',
+    maxRank: 5,
+    baseCost: 3_000,
+    effects: [{ stat: 'bonusUpgradeChancePercent', amountPerRank: 12 }],
+  },
+  {
     id: 'prestige',
     name: 'Prestige',
     description:
@@ -413,6 +425,8 @@ export function buildStartingStats({
       BASE_RUN_STATS.capacitorChargeRate * (1 + valueOf('capacitorChargePercent') / 100),
     surgeDamageBonus: BASE_RUN_STATS.surgeDamageBonus + valueOf('surgeDamagePercent') / 100,
     surgeDurationMs: BASE_RUN_STATS.surgeDurationMs + valueOf('surgeDurationMsFlat'),
+    bonusUpgradeChancePercent:
+      BASE_RUN_STATS.bonusUpgradeChancePercent + valueOf('bonusUpgradeChancePercent'),
   }
 }
 

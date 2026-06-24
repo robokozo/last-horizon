@@ -62,6 +62,15 @@ const emit = defineEmits<{
   banish: [payload: { upgradeId: string }]
 }>()
 
+/** cards collapse their prose description by default — these are the expanded ones */
+const expandedIds = ref<Array<string>>([])
+
+function toggleInfo({ id }: { id: string }): void {
+  expandedIds.value = expandedIds.value.includes(id)
+    ? expandedIds.value.filter((value) => value !== id)
+    : [...expandedIds.value, id]
+}
+
 function isBanishable({ choice }: { choice: UpgradeChoice }): boolean {
   // consolation fillers aren't in the pool, and a card you've already invested in
   // is your build — striking either is never what the player wants
@@ -124,8 +133,20 @@ const RARITY_LABEL_CLASSES: Record<UpgradeRarity, string> = {
                   {{ choice.currentStacks === 0 ? 'Uses a slot' : 'Weapon' }}
                 </span>
               </span>
-              <span class="text-lg font-bold text-slate-100">{{ choice.name }}</span>
-              <span class="text-sm text-slate-400">{{ choice.description }}</span>
+              <span class="flex items-center justify-between gap-2">
+                <span class="text-lg font-bold text-slate-100">{{ choice.name }}</span>
+                <button
+                  type="button"
+                  class="shrink-0 cursor-pointer rounded-full border border-slate-600 px-2 py-0.5 text-[11px] font-semibold text-slate-400 transition hover:border-slate-400 hover:text-slate-200"
+                  :title="expandedIds.includes(choice.id) ? 'Hide description' : 'Show description'"
+                  @click.stop="toggleInfo({ id: choice.id })"
+                >
+                  {{ expandedIds.includes(choice.id) ? 'ⓘ ▴' : 'ⓘ ▾' }}
+                </button>
+              </span>
+              <span v-if="expandedIds.includes(choice.id)" class="text-sm text-slate-400">
+                {{ choice.description }}
+              </span>
               <span
                 v-if="choice.effects !== undefined && choice.effects.length > 0"
                 class="flex flex-col gap-0.5 rounded-lg bg-slate-950/60 p-2 text-xs"

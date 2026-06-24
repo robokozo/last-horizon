@@ -2,6 +2,8 @@ export interface RunStats {
   damage: number
   /** Veteran perk: weapon damage grows by this percent per player level (additive, applied mid-run) */
   damagePerLevelPercent: number
+  /** Windfall perk: chance (%) that a level-up also grants a free random bonus upgrade */
+  bonusUpgradeChancePercent: number
   /** number of deployed cannons, each running its own fire cooldown */
   cannonCount: number
   fireIntervalMs: number
