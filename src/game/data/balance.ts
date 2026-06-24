@@ -491,10 +491,12 @@ export const LANCE = {
   /** per-invader damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
   baseDamageMult: 3,
   damageMultPerLevel: 1,
-  /** degrees of sky covered per sweep, centered on the densest cluster */
+  // the main beam now sweeps the whole firing arc edge to edge; these only size the
+  // smaller refraction echo arcs a cloud throws off
   sweepArcDegBase: 70,
   sweepArcDegPerLevel: 15,
-  sweepSpeedDegPerSec: 65,
+  /** sweep speed — fast enough to cross the full ~166° sky arc in ~1.3s */
+  sweepSpeedDegPerSec: 130,
   beamHalfWidthPx: 7,
 } as const
 

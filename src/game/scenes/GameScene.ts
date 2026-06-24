@@ -148,15 +148,17 @@ interface SweepBeam {
   originX: number
   originY: number
   angleRad: number
-  /** where the sweep began — paired with endAngleRad it's the full arc, for the scorch */
+  /** where the sweep began — paired with endAngleRad it's the full arc */
   startAngleRad: number
+  /** the last angle a damaging trail slice was deposited at, so the trail lays down live */
+  trailAngleRad: number
   endAngleRad: number
   directionSign: 1 | -1
   damage: number
   hitEnemies: Set<EnemyUnit>
-  /** the beam's reach — pinned to the ignition target's distance, not max range */
+  /** the beam's reach — the cannon's full targeting range; it never shortens on contact */
   reachPx: number
-  /** how far the beam extends this frame — reachPx, or cut short by a blocking invader */
+  /** kept equal to reachPx (the beam no longer cuts short) — read by refraction */
   currentLengthPx: number
   /** remaining refraction hops this beam may chain — 0 is terminal (primary starts at refractionLevel) */
   refractionsLeft: number
@@ -165,14 +167,16 @@ interface SweepBeam {
   isDead: boolean
 }
 
-/** the burning streak a thermal lance leaves in the sky along the arc it swept */
-interface LanceScorch {
+/** a burning slice the thermal lance lays down as it sweeps — a temporary damage zone */
+interface LanceTrail {
   originX: number
   originY: number
   startAngleRad: number
   endAngleRad: number
   directionSign: 1 | -1
-  radius: number
+  reachPx: number
+  /** damage per second dealt to invaders standing inside this slice while it lingers */
+  dps: number
   remainingMs: number
   totalMs: number
 }
@@ -357,6 +361,12 @@ const AEGIS_MAX_ALPHA = 0.9
 const MAX_NANITE_DRONES = 3
 /** hard ceiling on live lance beams so a deep refraction chain can never run away */
 const MAX_ACTIVE_SWEEPS = 120
+/** how long a lance trail slice lingers as a burning damage zone before it fades */
+const LANCE_TRAIL_FADE_MS = 1_100
+/** trail damage-per-second, as a fraction of the beam's hit — the lingering area-denial */
+const LANCE_TRAIL_DPS_FACTOR = 0.5
+/** ceiling on lingering trail slices across all sweeps, so a refraction storm stays bounded */
+const MAX_LANCE_TRAILS = 200
 /** at high game speed the sim runs in sub-steps this size, so fast bullets cannot tunnel through enemies */
 const MAX_SIM_STEP_MS = 20
 /** largest real-time frame delta the sim honors — a backgrounded tab hiccups one frame instead of fast-forwarding the whole pause */
@@ -522,7 +532,7 @@ export class GameScene extends Phaser.Scene {
   private parachutes: Array<ParachuteUnit> = []
   private bombs: Array<BombUnit> = []
   private sweeps: Array<SweepBeam> = []
-  private lanceScorches: Array<LanceScorch> = []
+  private lanceTrails: Array<LanceTrail> = []
   private sweepGraphics!: Phaser.GameObjects.Graphics
   private mines: Array<MineUnit> = []
   private mineShells: Array<MineShellUnit> = []
@@ -827,7 +837,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.gravitonWells = []
     this.ionTrails = []
-    this.lanceScorches = []
+    this.lanceTrails = []
     this.dummyRespawnQueue = []
 
     this.stats = { ...stats }
@@ -1084,7 +1094,7 @@ export class GameScene extends Phaser.Scene {
     this.updateParachutes({ delta })
     this.updateBfg({ delta })
     this.updateLanceSweeps({ delta })
-    this.updateLanceScorches({ delta })
+    this.updateLanceTrails({ delta })
     this.updateBurning({ delta })
     this.updateCapacitor({ delta })
     this.updateMines({ delta })
@@ -3970,21 +3980,21 @@ export class GameScene extends Phaser.Scene {
 
   // ── thermal lance ──────────────────────────────────────────────────
 
-  /** each gun ignites its own lance at the densest cluster within its reach */
+  /** each gun sweeps a thermal lance across the whole sky when anything is in reach */
   private fireLance({ cannon }: { cannon: CannonUnit }): boolean {
-    // the lance only reaches as far as the cannon's targeting range
+    // fire only when there's something to sear, but the sweep covers the full firing
+    // arc — it doesn't aim at, or stop short at, any one target
     const rangeSq = this.stats.range ** 2
-    const inRange = this.enemies.filter((enemy) => {
+    const hasTarget = this.enemies.some((enemy) => {
       if (enemy.isDead === true) {
         return false
       }
       return (enemy.image.x - cannon.x) ** 2 + (enemy.image.y - (cannon.y - 10)) ** 2 <= rangeSq
     })
-    const target = inRange.length > 0 ? this.findClusterTarget({ pool: inRange }) : null
-    if (target === null) {
+    if (hasTarget === false) {
       return false
     }
-    this.fireThermalLance({ cannon, target })
+    this.fireThermalLance({ cannon })
     return true
   }
 
@@ -4001,19 +4011,30 @@ export class GameScene extends Phaser.Scene {
           ? sweep.angleRad >= sweep.endAngleRad
           : sweep.angleRad <= sweep.endAngleRad
       if (isFinished === true) {
-        this.spawnLanceScorch({ sweep })
-        sweep.isDead = true
-        continue
+        sweep.angleRad = sweep.endAngleRad
       }
-      // ray test: the beam stops at the first invader it touches — no piercing
-      // (overwatch synergy: frozen invaders are glassed straight through instead)
+      // lay the temporary damage trail down LIVE, covering the slice just swept
+      this.spawnLanceTrailSlice({ sweep, fromAngle: sweep.trailAngleRad, toAngle: sweep.angleRad })
+      sweep.trailAngleRad = sweep.angleRad
+      // the beam always reaches its full range and never shortens (refraction reads this)
+      sweep.currentLengthPx = sweep.reachPx
+
+      // ray test: damage EVERY invader the beam crosses within range, once each — no
+      // stopping at the first contact, frozen invaders just take the overwatch bonus
       const directionX = Math.cos(sweep.angleRad)
       const directionY = Math.sin(sweep.angleRad)
-      let blocker: EnemyUnit | null = null
-      let blockerAlong = Number.POSITIVE_INFINITY
-      const piercedFrozen: Array<{ enemy: EnemyUnit; along: number }> = []
+      const thermiteDps =
+        this.stats.thermiteLevel > 0
+          ? this.stats.damage *
+            (SYNERGIES.thermite.burnDpsMultBase +
+              SYNERGIES.thermite.burnDpsMultPerLevel * (this.stats.thermiteLevel - 1))
+          : 0
+      const overwatchBonus =
+        1 +
+        SYNERGIES.overwatch.frozenDamageBonusBase +
+        SYNERGIES.overwatch.frozenDamageBonusPerLevel * Math.max(0, this.stats.overwatchLevel - 1)
       for (const enemy of this.enemies) {
-        if (enemy.isDead === true) {
+        if (enemy.isDead === true || sweep.hitEnemies.has(enemy) === true) {
           continue
         }
         const toEnemyX = enemy.image.x - sweep.originX
@@ -4026,111 +4047,102 @@ export class GameScene extends Phaser.Scene {
         if (perpendicular > enemy.radius + LANCE.beamHalfWidthPx) {
           continue
         }
-        if (this.stats.overwatchLevel > 0 && enemy.frozenRemainingMs > 0) {
-          piercedFrozen.push({ enemy, along })
-          continue
-        }
-        if (along < blockerAlong) {
-          blocker = enemy
-          blockerAlong = along
-        }
-      }
-      // snap short on contact, recover gradually — so the stop reads instead of flickering
-      const targetLengthPx = blocker === null ? sweep.reachPx : blockerAlong
-      sweep.currentLengthPx =
-        targetLengthPx < sweep.currentLengthPx
-          ? targetLengthPx
-          : Math.min(targetLengthPx, sweep.currentLengthPx + sweep.reachPx * (delta / 180))
-      // refract off whatever cloud this frame's beam happens to pass through
-      this.refractSweepOffClouds({ sweep })
-      const thermiteDps =
-        this.stats.thermiteLevel > 0
-          ? this.stats.damage *
-            (SYNERGIES.thermite.burnDpsMultBase +
-              SYNERGIES.thermite.burnDpsMultPerLevel * (this.stats.thermiteLevel - 1))
-          : 0
-      if (blocker !== null && sweep.hitEnemies.has(blocker) === false) {
-        sweep.hitEnemies.add(blocker)
-        // a visible splash where the beam slams into its blocker
-        this.spawnImpactFlash({
-          x: sweep.originX + directionX * blockerAlong,
-          y: sweep.originY + directionY * blockerAlong,
-          radius: 20,
-        })
-        this.damageEnemy({ enemy: blocker, amount: sweep.damage, source: 'lance' })
-        // thermite beam synergy: everything the lance sears keeps burning
-        this.igniteEnemy({ enemy: blocker, dps: thermiteDps })
-      }
-      const overwatchBonus =
-        1 +
-        SYNERGIES.overwatch.frozenDamageBonusBase +
-        SYNERGIES.overwatch.frozenDamageBonusPerLevel * Math.max(0, this.stats.overwatchLevel - 1)
-      for (const pierced of piercedFrozen) {
-        // only frozen targets the (possibly shortened) beam still reaches
-        if (pierced.along > sweep.currentLengthPx + pierced.enemy.radius) {
-          continue
-        }
-        if (sweep.hitEnemies.has(pierced.enemy) === true) {
-          continue
-        }
-        sweep.hitEnemies.add(pierced.enemy)
+        sweep.hitEnemies.add(enemy)
+        const isFrozen = this.stats.overwatchLevel > 0 && enemy.frozenRemainingMs > 0
         this.damageEnemy({
-          enemy: pierced.enemy,
-          amount: sweep.damage * overwatchBonus,
+          enemy,
+          amount: isFrozen === true ? sweep.damage * overwatchBonus : sweep.damage,
           source: 'lance',
         })
-        this.igniteEnemy({ enemy: pierced.enemy, dps: thermiteDps })
+        // thermite beam synergy: everything the lance sears keeps burning
+        this.igniteEnemy({ enemy, dps: thermiteDps })
+      }
+
+      // refract off whatever cloud this frame's beam happens to pass through
+      this.refractSweepOffClouds({ sweep })
+
+      if (isFinished === true) {
+        sweep.isDead = true
       }
     }
     this.sweeps = this.sweeps.filter((sweep) => sweep.isDead === false)
   }
 
-  /** record the burning arc a finished sweep leaves behind, to fade out in the sky */
-  private spawnLanceScorch({ sweep }: { sweep: SweepBeam }): void {
-    const SCORCH_FADE_MS = 1_400
-    this.lanceScorches.push({
-      originX: sweep.originX,
-      originY: sweep.originY,
-      startAngleRad: sweep.startAngleRad,
-      endAngleRad: sweep.endAngleRad,
-      directionSign: sweep.directionSign,
-      radius: sweep.reachPx,
-      remainingMs: SCORCH_FADE_MS,
-      totalMs: SCORCH_FADE_MS,
-    })
-    // keep the lingering streaks bounded so a deep refraction storm can't pile up
-    if (this.lanceScorches.length > 40) {
-      this.lanceScorches.shift()
-    }
-  }
-
-  private updateLanceScorches({ delta }: { delta: number }): void {
-    if (this.lanceScorches.length === 0) {
+  /** drop a burning slice covering the arc the beam just swept — a temporary damage zone */
+  private spawnLanceTrailSlice({
+    sweep,
+    fromAngle,
+    toAngle,
+  }: {
+    sweep: SweepBeam
+    fromAngle: number
+    toAngle: number
+  }): void {
+    if (fromAngle === toAngle) {
       return
     }
-    for (const scorch of this.lanceScorches) {
-      scorch.remainingMs -= delta
+    this.lanceTrails.push({
+      originX: sweep.originX,
+      originY: sweep.originY,
+      startAngleRad: fromAngle,
+      endAngleRad: toAngle,
+      directionSign: sweep.directionSign,
+      reachPx: sweep.reachPx,
+      dps: sweep.damage * LANCE_TRAIL_DPS_FACTOR,
+      remainingMs: LANCE_TRAIL_FADE_MS,
+      totalMs: LANCE_TRAIL_FADE_MS,
+    })
+    // bound the lingering slices so a deep refraction storm can't pile up
+    if (this.lanceTrails.length > MAX_LANCE_TRAILS) {
+      this.lanceTrails.shift()
     }
-    this.lanceScorches = this.lanceScorches.filter((scorch) => scorch.remainingMs > 0)
   }
 
-  /** ignite the lance at the firing cannon, sweeping its arc across the target cluster */
-  private fireThermalLance({ cannon, target }: { cannon: CannonUnit; target: EnemyUnit }): void {
+  private updateLanceTrails({ delta }: { delta: number }): void {
+    if (this.lanceTrails.length === 0) {
+      return
+    }
+    const seconds = delta / 1_000
+    for (const trail of this.lanceTrails) {
+      trail.remainingMs -= delta
+      if (trail.dps <= 0) {
+        continue
+      }
+      // invaders standing inside the burning slice keep taking damage while it lingers
+      const loAngle = Math.min(trail.startAngleRad, trail.endAngleRad) - 0.04
+      const hiAngle = Math.max(trail.startAngleRad, trail.endAngleRad) + 0.04
+      for (const enemy of this.enemies) {
+        if (enemy.isDead === true) {
+          continue
+        }
+        const toEnemyX = enemy.image.x - trail.originX
+        const toEnemyY = enemy.image.y - trail.originY
+        const dist = Math.hypot(toEnemyX, toEnemyY)
+        if (dist < BARREL_LENGTH || dist > trail.reachPx + enemy.radius) {
+          continue
+        }
+        const angle = Math.atan2(toEnemyY, toEnemyX)
+        if (angle < loAngle || angle > hiAngle) {
+          continue
+        }
+        this.damageEnemy({ enemy, amount: trail.dps * seconds, source: 'lance' })
+      }
+    }
+    this.lanceTrails = this.lanceTrails.filter((trail) => trail.remainingMs > 0)
+  }
+
+  /** sweep a thermal lance across the whole sky, from one horizon edge to the other */
+  private fireThermalLance({ cannon }: { cannon: CannonUnit }): void {
     soundEngine.play({ name: 'lance' })
     const level = this.stats.lanceLevel
     const originX = cannon.x
     const originY = cannon.y - 10
 
-    const spanRad = Phaser.Math.DegToRad(
-      LANCE.sweepArcDegBase + LANCE.sweepArcDegPerLevel * (level - 1),
-    )
-    // the beam ignites ON the target and sweeps onward at the target's distance
-    const targetAngle = Math.atan2(target.image.y - originY, target.image.x - originX)
-    const reachPx = Math.hypot(target.image.x - originX, target.image.y - originY) + target.radius
-    // sweep toward whichever side of the sky has room for the full arc
-    const directionSign: 1 | -1 = targetAngle > -Math.PI / 2 ? -1 : 1
-    // keep the whole arc pointed into the sky (angles between just-above-horizon left and right)
-    const clampAngle = (angle: number): number => Phaser.Math.Clamp(angle, -Math.PI + 0.12, -0.12)
+    // the full firing arc: just above the left horizon, up over the top, to the right.
+    // the beam reaches the cannon's full range and never aims at a single target.
+    const LEFT_EDGE = -Math.PI + 0.12
+    const RIGHT_EDGE = -0.12
+    const reachPx = this.stats.range
 
     // ignition flare at the muzzle
     const flare = this.add.circle(originX, originY, 10, 0xfefce8, 0.95).setDepth(DEPTHS.effects)
@@ -4150,10 +4162,11 @@ export class GameScene extends Phaser.Scene {
     this.sweeps.push({
       originX,
       originY,
-      angleRad: clampAngle(targetAngle),
-      startAngleRad: clampAngle(targetAngle),
-      endAngleRad: clampAngle(targetAngle + spanRad * directionSign),
-      directionSign,
+      angleRad: LEFT_EDGE,
+      startAngleRad: LEFT_EDGE,
+      trailAngleRad: LEFT_EDGE,
+      endAngleRad: RIGHT_EDGE,
+      directionSign: 1,
       damage: sweepDamage,
       hitEnemies: new Set(),
       reachPx,
@@ -4242,6 +4255,7 @@ export class GameScene extends Phaser.Scene {
       // the echo carries on in the beam's heading; a cloud can fire downward, no sky clamp
       angleRad: sourceSweep.angleRad,
       startAngleRad: sourceSweep.angleRad,
+      trailAngleRad: sourceSweep.angleRad,
       endAngleRad: sourceSweep.angleRad + echoSpan * sourceSweep.directionSign,
       directionSign: sourceSweep.directionSign,
       damage:
@@ -4264,19 +4278,19 @@ export class GameScene extends Phaser.Scene {
     this.sweepGraphics.clear()
     const level = Math.max(1, this.stats.lanceLevel)
 
-    // burning scorch streaks the lance left in the sky, fading along their arc
-    for (const scorch of this.lanceScorches) {
-      const fade = scorch.remainingMs / scorch.totalMs
-      const anticlockwise = scorch.directionSign < 0
+    // burning trail slices the lance laid down as it swept, fading along their arc
+    for (const trail of this.lanceTrails) {
+      const fade = trail.remainingMs / trail.totalMs
+      const anticlockwise = trail.directionSign < 0
       // wide, dark ember underlay
       this.sweepGraphics.lineStyle(11, 0x7c2d12, 0.32 * fade)
       this.sweepGraphics.beginPath()
       this.sweepGraphics.arc(
-        scorch.originX,
-        scorch.originY,
-        scorch.radius,
-        scorch.startAngleRad,
-        scorch.endAngleRad,
+        trail.originX,
+        trail.originY,
+        trail.reachPx,
+        trail.startAngleRad,
+        trail.endAngleRad,
         anticlockwise,
       )
       this.sweepGraphics.strokePath()
@@ -4284,11 +4298,11 @@ export class GameScene extends Phaser.Scene {
       this.sweepGraphics.lineStyle(4, 0xea580c, 0.5 * fade)
       this.sweepGraphics.beginPath()
       this.sweepGraphics.arc(
-        scorch.originX,
-        scorch.originY,
-        scorch.radius,
-        scorch.startAngleRad,
-        scorch.endAngleRad,
+        trail.originX,
+        trail.originY,
+        trail.reachPx,
+        trail.startAngleRad,
+        trail.endAngleRad,
         anticlockwise,
       )
       this.sweepGraphics.strokePath()

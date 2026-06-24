@@ -22,6 +22,21 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Sky Sweeper',
+    blurb: 'The Thermal Lance reborn as a sky-wide sweep.',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'Thermal Lance reworked. Instead of snapping to the nearest cluster and stopping at the first invader, the beam now sweeps the entire firing arc edge to edge at full range, searing every invader it crosses along the way.',
+      },
+      {
+        kind: 'new',
+        text: 'As the lance sweeps it lays down a burning trail across the sky — a temporary damage zone that keeps scorching anything standing in its path for a moment after the beam passes.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Range Tidy-up',
     blurb: 'Training Range presets speak the perk shop’s language.',
     notes: [
