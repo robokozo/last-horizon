@@ -535,7 +535,7 @@ export class GameScene extends Phaser.Scene {
   private gravitonWells: Array<GravitonWellUnit> = []
   private ionTrails: Array<IonTrailUnit> = []
   private naniteDrones: Array<Phaser.GameObjects.Image> = []
-  private shieldImage!: Phaser.GameObjects.Image
+  private shieldImages: Array<Phaser.GameObjects.Image> = []
   private cooldownBars!: Phaser.GameObjects.Graphics
   private barLabels = new Map<string, Phaser.GameObjects.Text>()
   private busUnsubscribes: Array<() => void> = []
@@ -584,13 +584,15 @@ export class GameScene extends Phaser.Scene {
     this.drawGround()
     this.spawnBuildings()
 
-    // the shield ring is the aegis keystone made visible: hidden without it,
-    // dim while recharging, bright when a block is ready
-    this.shieldImage = this.add
-      .image(this.cannonXs[0], this.cannonY, 'shield')
-      .setDepth(DEPTHS.shield)
-      .setVisible(this.stats.aegisIntervalMs !== null)
-      .setAlpha(AEGIS_MIN_ALPHA)
+    // the shield ring is the aegis keystone made visible: one over every cannon,
+    // hidden without the keystone, dim while recharging, bright when a block is ready
+    this.shieldImages = this.cannonXs.map((x) =>
+      this.add
+        .image(x, this.cannonY, 'shield')
+        .setDepth(DEPTHS.shield)
+        .setVisible(false)
+        .setAlpha(AEGIS_MIN_ALPHA),
+    )
     this.syncCannons()
     // clouds anchor to the deployed cannons' reach, so they spawn after them
     this.spawnClouds()
@@ -844,7 +846,9 @@ export class GameScene extends Phaser.Scene {
     this.stormAccumulatorMs = 0
     this.aegisAccumulatorMs = 0
 
-    this.shieldImage.setVisible(this.stats.aegisIntervalMs !== null).setAlpha(AEGIS_MIN_ALPHA)
+    for (const shield of this.shieldImages) {
+      shield.setAlpha(AEGIS_MIN_ALPHA)
+    }
     this.syncCannons()
     // clouds anchor to the deployed cannons' reach, so they spawn after them
     this.spawnClouds()
@@ -5425,9 +5429,12 @@ export class GameScene extends Phaser.Scene {
     }
     this.aegisAccumulatorMs = Math.min(this.stats.aegisIntervalMs, this.aegisAccumulatorMs + delta)
     const chargeFraction = this.aegisAccumulatorMs / this.stats.aegisIntervalMs
-    this.shieldImage.setAlpha(
-      AEGIS_MIN_ALPHA + (AEGIS_MAX_ALPHA - AEGIS_MIN_ALPHA) * chargeFraction,
-    )
+    const alpha = AEGIS_MIN_ALPHA + (AEGIS_MAX_ALPHA - AEGIS_MIN_ALPHA) * chargeFraction
+    for (const shield of this.shieldImages) {
+      if (shield.visible === true) {
+        shield.setAlpha(alpha)
+      }
+    }
   }
 
   private tryAegisBlock({ x }: { x: number }): boolean {
@@ -5453,7 +5460,11 @@ export class GameScene extends Phaser.Scene {
         blockFlash.destroy()
       },
     })
-    this.shieldImage.setAlpha(1)
+    for (const shield of this.shieldImages) {
+      if (shield.visible === true) {
+        shield.setAlpha(1)
+      }
+    }
     return true
   }
 
@@ -6003,6 +6014,16 @@ export class GameScene extends Phaser.Scene {
         cooldowns: new Map(),
       })
     }
+    this.syncShields()
+  }
+
+  /** show a shield over each active cannon when the aegis keystone is owned */
+  private syncShields(): void {
+    const aegisActive = this.stats.aegisIntervalMs !== null
+    const activeCount = Math.min(this.stats.cannonCount, this.cannonXs.length)
+    this.shieldImages.forEach((shield, index) => {
+      shield.setVisible(aegisActive === true && index < activeCount)
+    })
   }
 
   // ── buildings ──────────────────────────────────────────────────────
@@ -6081,7 +6102,7 @@ export class GameScene extends Phaser.Scene {
       cannon.rangeRing,
     ])
     this.tweens.add({
-      targets: [...cannonImages, this.shieldImage],
+      targets: [...cannonImages, ...this.shieldImages],
       scale: 1.6,
       alpha: 0,
       duration: 700,
