@@ -148,6 +148,8 @@ interface SweepBeam {
   originX: number
   originY: number
   angleRad: number
+  /** where the sweep began — paired with endAngleRad it's the full arc, for the scorch */
+  startAngleRad: number
   endAngleRad: number
   directionSign: 1 | -1
   damage: number
@@ -161,6 +163,18 @@ interface SweepBeam {
   /** clouds already spent by this lance shot's whole chain (shared down it), so each refracts once */
   chainClouds: Set<CloudUnit>
   isDead: boolean
+}
+
+/** the burning streak a thermal lance leaves in the sky along the arc it swept */
+interface LanceScorch {
+  originX: number
+  originY: number
+  startAngleRad: number
+  endAngleRad: number
+  directionSign: 1 | -1
+  radius: number
+  remainingMs: number
+  totalMs: number
 }
 
 interface MineUnit {
@@ -508,6 +522,7 @@ export class GameScene extends Phaser.Scene {
   private parachutes: Array<ParachuteUnit> = []
   private bombs: Array<BombUnit> = []
   private sweeps: Array<SweepBeam> = []
+  private lanceScorches: Array<LanceScorch> = []
   private sweepGraphics!: Phaser.GameObjects.Graphics
   private mines: Array<MineUnit> = []
   private mineShells: Array<MineShellUnit> = []
@@ -810,6 +825,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.gravitonWells = []
     this.ionTrails = []
+    this.lanceScorches = []
     this.dummyRespawnQueue = []
 
     this.stats = { ...stats }
@@ -1056,6 +1072,7 @@ export class GameScene extends Phaser.Scene {
     this.updateParachutes({ delta })
     this.updateBfg({ delta })
     this.updateLanceSweeps({ delta })
+    this.updateLanceScorches({ delta })
     this.updateBurning({ delta })
     this.updateCapacitor({ delta })
     this.updateMines({ delta })
@@ -3972,6 +3989,7 @@ export class GameScene extends Phaser.Scene {
           ? sweep.angleRad >= sweep.endAngleRad
           : sweep.angleRad <= sweep.endAngleRad
       if (isFinished === true) {
+        this.spawnLanceScorch({ sweep })
         sweep.isDead = true
         continue
       }
@@ -4055,6 +4073,35 @@ export class GameScene extends Phaser.Scene {
     this.sweeps = this.sweeps.filter((sweep) => sweep.isDead === false)
   }
 
+  /** record the burning arc a finished sweep leaves behind, to fade out in the sky */
+  private spawnLanceScorch({ sweep }: { sweep: SweepBeam }): void {
+    const SCORCH_FADE_MS = 1_400
+    this.lanceScorches.push({
+      originX: sweep.originX,
+      originY: sweep.originY,
+      startAngleRad: sweep.startAngleRad,
+      endAngleRad: sweep.endAngleRad,
+      directionSign: sweep.directionSign,
+      radius: sweep.reachPx,
+      remainingMs: SCORCH_FADE_MS,
+      totalMs: SCORCH_FADE_MS,
+    })
+    // keep the lingering streaks bounded so a deep refraction storm can't pile up
+    if (this.lanceScorches.length > 40) {
+      this.lanceScorches.shift()
+    }
+  }
+
+  private updateLanceScorches({ delta }: { delta: number }): void {
+    if (this.lanceScorches.length === 0) {
+      return
+    }
+    for (const scorch of this.lanceScorches) {
+      scorch.remainingMs -= delta
+    }
+    this.lanceScorches = this.lanceScorches.filter((scorch) => scorch.remainingMs > 0)
+  }
+
   /** ignite the lance at the firing cannon, sweeping its arc across the target cluster */
   private fireThermalLance({ cannon, target }: { cannon: CannonUnit; target: EnemyUnit }): void {
     soundEngine.play({ name: 'lance' })
@@ -4092,6 +4139,7 @@ export class GameScene extends Phaser.Scene {
       originX,
       originY,
       angleRad: clampAngle(targetAngle),
+      startAngleRad: clampAngle(targetAngle),
       endAngleRad: clampAngle(targetAngle + spanRad * directionSign),
       directionSign,
       damage: sweepDamage,
@@ -4181,6 +4229,7 @@ export class GameScene extends Phaser.Scene {
       originY: cloud.image.y,
       // the echo carries on in the beam's heading; a cloud can fire downward, no sky clamp
       angleRad: sourceSweep.angleRad,
+      startAngleRad: sourceSweep.angleRad,
       endAngleRad: sourceSweep.angleRad + echoSpan * sourceSweep.directionSign,
       directionSign: sourceSweep.directionSign,
       damage:
@@ -4202,6 +4251,37 @@ export class GameScene extends Phaser.Scene {
   private drawSweepBeams(): void {
     this.sweepGraphics.clear()
     const level = Math.max(1, this.stats.lanceLevel)
+
+    // burning scorch streaks the lance left in the sky, fading along their arc
+    for (const scorch of this.lanceScorches) {
+      const fade = scorch.remainingMs / scorch.totalMs
+      const anticlockwise = scorch.directionSign < 0
+      // wide, dark ember underlay
+      this.sweepGraphics.lineStyle(11, 0x7c2d12, 0.32 * fade)
+      this.sweepGraphics.beginPath()
+      this.sweepGraphics.arc(
+        scorch.originX,
+        scorch.originY,
+        scorch.radius,
+        scorch.startAngleRad,
+        scorch.endAngleRad,
+        anticlockwise,
+      )
+      this.sweepGraphics.strokePath()
+      // brighter glowing core line
+      this.sweepGraphics.lineStyle(4, 0xea580c, 0.5 * fade)
+      this.sweepGraphics.beginPath()
+      this.sweepGraphics.arc(
+        scorch.originX,
+        scorch.originY,
+        scorch.radius,
+        scorch.startAngleRad,
+        scorch.endAngleRad,
+        anticlockwise,
+      )
+      this.sweepGraphics.strokePath()
+    }
+
     for (const sweep of this.sweeps) {
       if (sweep.isDead === true) {
         continue

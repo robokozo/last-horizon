@@ -22,6 +22,17 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-23',
+    title: 'Scorched Sky',
+    blurb: 'The thermal lance now brands the sky.',
+    notes: [
+      {
+        kind: 'new',
+        text: 'The Thermal Lance now leaves a glowing scorch streak across the sky along the arc its beam swept, smoldering for a moment before it fades. Refraction echoes leave their own smaller burns.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-23',
     title: 'The Paragon Shop',
     blurb: 'The paragon board is gone — meet the perk shop.',
     notes: [
