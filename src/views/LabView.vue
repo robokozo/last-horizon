@@ -26,6 +26,9 @@ import { PERKS, applyPrestige, buildStartingStats } from '@/skills/skillTree'
 type TreePreset = 'none' | 'keystones' | 'full'
 
 const gameContainer = ref<HTMLDivElement | null>(null)
+// the control panel docks beside the canvas on desktop, but collapses into a
+// slide-in drawer on mobile — start open on wide screens, closed on phones
+const isPanelOpen = ref(typeof window === 'undefined' || window.innerWidth >= 768)
 const treePreset = ref<TreePreset>('none')
 const isMuted = ref(soundEngine.muted())
 
@@ -620,9 +623,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main ref="mainElement" class="relative flex h-screen">
+  <main ref="mainElement" class="relative flex h-screen overflow-hidden">
+    <!-- mobile: tap the dimmed backdrop to close the drawer -->
+    <div
+      v-if="isPanelOpen === true"
+      class="absolute inset-0 z-10 bg-black/50 md:hidden"
+      @click="isPanelOpen = false"
+    />
     <aside
-      class="z-10 flex w-104 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-slate-950/95 p-4"
+      class="absolute inset-y-0 left-0 z-20 flex w-[88vw] max-w-104 transform flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-slate-950/95 p-4 transition-transform duration-200 md:static md:z-10 md:w-104 md:max-w-none md:translate-x-0"
+      :class="isPanelOpen === true ? 'translate-x-0' : '-translate-x-full'"
     >
       <div class="flex items-center justify-between">
         <RouterLink to="/" class="text-sm font-semibold text-slate-400 hover:text-slate-200">
@@ -637,6 +647,14 @@ onUnmounted(() => {
             @click="toggleMute()"
           >
             {{ isMuted === true ? '🔇' : '🔊' }}
+          </button>
+          <button
+            type="button"
+            class="cursor-pointer rounded px-1 text-lg leading-none text-slate-400 hover:text-slate-200 md:hidden"
+            aria-label="Close controls"
+            @click="isPanelOpen = false"
+          >
+            ✕
           </button>
         </span>
       </div>
@@ -1315,6 +1333,16 @@ onUnmounted(() => {
 
     <div class="relative flex-1">
       <div ref="gameContainer" class="h-full w-full overflow-hidden" />
+      <!-- mobile: open the controls drawer -->
+      <button
+        v-if="isPanelOpen === false"
+        type="button"
+        class="absolute left-2 top-2 z-30 flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-2 text-sm font-bold text-lime-300 shadow-lg md:hidden"
+        aria-label="Open controls"
+        @click="isPanelOpen = true"
+      >
+        ☰ Controls
+      </button>
       <div
         v-if="diagWatchLabel !== ''"
         class="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-sky-500/50 bg-slate-950/85 px-4 py-1.5 text-sm font-bold text-sky-200 shadow-lg"
