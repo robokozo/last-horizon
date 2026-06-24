@@ -2386,12 +2386,34 @@ export class GameScene extends Phaser.Scene {
     // only the original detonation cracks — a cascade of claps would be a wall of noise
     if (generation === 0) {
       soundEngine.play({ name: 'flak' })
+      this.shakeCamera({ durationMs: 110, intensity: 0.004 })
     }
-    this.spawnFlakSmoke({ x, y })
+    const blastRadius = FLAK.blastRadius + FLAK.blastRadiusPerLevel * (this.stats.flakLevel - 1)
+    this.spawnFlakBlast({ x, y, radius: blastRadius })
 
-    // the shell itself wounds whatever tripped the fuse; fragments are the bonus
+    // the shell wounds whatever tripped the fuse at full strength...
     if (directHitEnemy !== null) {
       this.damageEnemy({ enemy: directHitEnemy, amount: shellDamage, source: 'flak' })
+    }
+    // ...and the airburst splashes everything else around the detonation
+    const blastDamage = (shellDamage * FLAK.blastDamagePercent) / 100
+    for (const enemy of this.enemies) {
+      if (enemy.isDead === true || enemy === directHitEnemy) {
+        continue
+      }
+      const distanceSq = (enemy.image.x - x) ** 2 + (enemy.image.y - y) ** 2
+      if (distanceSq <= (blastRadius + enemy.radius) ** 2) {
+        this.damageEnemy({ enemy, amount: blastDamage, source: 'flak' })
+        // cryo shells synergy chills the whole burst, not just the fragments
+        if (this.stats.cryoLevel > 0) {
+          this.applyChill({
+            enemy,
+            durationMs:
+              SYNERGIES.cryoshells.chillMsBase +
+              SYNERGIES.cryoshells.chillMsPerLevel * (this.stats.cryoLevel - 1),
+          })
+        }
+      }
     }
 
     const fragmentCount = FLAK.baseFragments + FLAK.fragmentsPerLevel * (this.stats.flakLevel - 1)
@@ -2467,30 +2489,81 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** the movie burst: a killing flash inside a rolling ball of black smoke that lingers */
-  private spawnFlakSmoke({ x, y }: { x: number; y: number }): void {
+  /** the flak airburst: a flash, a fireball, twin shockwave rings, embers, and smoke */
+  private spawnFlakBlast({ x, y, radius }: { x: number; y: number; radius: number }): void {
     const level = Math.max(1, this.stats.flakLevel)
-    const flash = this.add.circle(x, y, 5, 0xfff7ed, 1).setDepth(DEPTHS.effects)
+    // hard white flash at the core
+    const flash = this.add.circle(x, y, 6, 0xfff7ed, 1).setDepth(DEPTHS.effects)
     this.tweens.add({
       targets: flash,
-      radius: 15 + 2 * (level - 1),
+      radius: radius * 0.5,
       alpha: 0,
-      duration: 150,
+      duration: 130,
       ease: 'Cubic.easeOut',
       onComplete: () => {
         flash.destroy()
       },
     })
-    const core = this.add.circle(x, y, 8, 0xfb923c, 0.9).setDepth(DEPTHS.effects)
+    // orange fireball that fills most of the blast
+    const fireball = this.add.circle(x, y, 9, 0xfb923c, 0.85).setDepth(DEPTHS.effects)
     this.tweens.add({
-      targets: core,
-      radius: 18 + 2 * (level - 1),
+      targets: fireball,
+      radius: radius * 0.72,
       alpha: 0,
-      duration: 260,
+      duration: 300,
       ease: 'Cubic.easeOut',
       onComplete: () => {
-        core.destroy()
+        fireball.destroy()
       },
     })
+    // expanding shockwave ring out to the AoE edge, plus a faster inner ring
+    const shock = this.add.circle(x, y, 8).setStrokeStyle(3, 0xfdba74, 0.9).setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: shock,
+      radius,
+      alpha: 0,
+      duration: 360,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        shock.destroy()
+      },
+    })
+    const innerRing = this.add
+      .circle(x, y, 4)
+      .setStrokeStyle(2, 0xfff7ed, 0.8)
+      .setDepth(DEPTHS.effects)
+    this.tweens.add({
+      targets: innerRing,
+      radius: radius * 0.55,
+      alpha: 0,
+      duration: 220,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        innerRing.destroy()
+      },
+    })
+    // sparks flung outward
+    if (this.suppressVisuals === false) {
+      const emberCount = 7 + Math.floor(Math.random() * 4)
+      for (let index = 0; index < emberCount; index += 1) {
+        const angle = Math.random() * Math.PI * 2
+        const distance = radius * (0.4 + Math.random() * 0.6)
+        const ember = this.add
+          .circle(x, y, 1.5 + Math.random() * 1.5, 0xfde047, 0.95)
+          .setDepth(DEPTHS.effects)
+        this.tweens.add({
+          targets: ember,
+          x: x + Math.cos(angle) * distance,
+          y: y + Math.sin(angle) * distance,
+          alpha: 0,
+          duration: 280 + Math.random() * 240,
+          ease: 'Cubic.easeOut',
+          onComplete: () => {
+            ember.destroy()
+          },
+        })
+      }
+    }
     // the smoke sits under the units layer so invaders fly through the wall
     const smokeColors = [0x0f172a, 0x1e293b, 0x334155]
     const puffCount = 5 + Math.floor(Math.random() * 3)

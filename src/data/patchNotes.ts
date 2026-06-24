@@ -22,6 +22,21 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Airburst',
+    blurb: 'Flak detonations hit harder and look the part.',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'Flak Gun detonations now throw off an airburst shockwave that splashes damage on every invader caught around the burst, not just the one that tripped the fuse — on top of the usual fragment spray. Higher ranks widen the blast.',
+      },
+      {
+        kind: 'new',
+        text: 'Flak bursts got a glow-up: a bright flash, an orange fireball, twin expanding shockwave rings, and a shower of sparks, with a little screen kick on the detonation.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Grounded',
     blurb: 'Balloon Mines stay where you plant them.',
     notes: [

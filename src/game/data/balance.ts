@@ -761,6 +761,11 @@ export const FLAK = {
   maxFlightSeconds: 1.4,
   /** the timed fuse bursts this far past the predicted intercept point */
   fuseOvershootPx: 30,
+  /** airburst AoE: a splash that wounds everything around the detonation, not just the fuse target */
+  blastRadius: 66,
+  blastRadiusPerLevel: 8,
+  /** AoE splash damage = shell damage × this percent (non-trigger invaders in radius) */
+  blastDamagePercent: 70,
 } as const
 
 export const ROCKET = {
