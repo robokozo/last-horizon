@@ -23,7 +23,7 @@ import { soundEngine } from '@/game/sound'
 import type { SandboxLayout, SandboxStatsEntry } from '@/game/types'
 import { PERKS, applyPrestige, buildStartingStats } from '@/skills/skillTree'
 
-type TreePreset = 'none' | 'keystones' | 'full'
+type TreePreset = 'none' | 'legendary' | 'full'
 
 const gameContainer = ref<HTMLDivElement | null>(null)
 // the control panel docks beside the canvas on desktop, but collapses into a
@@ -82,7 +82,7 @@ const allPerkRanks = (filter: (perk: (typeof PERKS)[number]) => boolean): Array<
 
 const PRESET_NODE_IDS: Record<TreePreset, Array<string>> = {
   none: [],
-  keystones: allPerkRanks((perk) => perk.rarity === 'legendary' && perk.special !== 'prestige'),
+  legendary: allPerkRanks((perk) => perk.rarity === 'legendary' && perk.special !== 'prestige'),
   full: allPerkRanks((perk) => perk.special !== 'prestige'),
 }
 
@@ -228,8 +228,8 @@ function adjustCard({ cardId, step }: { cardId: string; step: number }): void {
     return
   }
   const current = cardStacks.value[cardId] ?? 0
-  // allow up to +2 over base cap to simulate the paragon tier nodes
-  const next = Math.max(0, Math.min(definition.maxStacks + 2, current + step))
+  // allow up to +3 over base cap to simulate the Weapon Level Cap perk (max 3 ranks)
+  const next = Math.max(0, Math.min(definition.maxStacks + 3, current + step))
   cardStacks.value = { ...cardStacks.value, [cardId]: next }
   scheduleRestart()
 }
@@ -663,10 +663,10 @@ onUnmounted(() => {
       <div class="flex flex-col gap-2 rounded-xl bg-slate-900/50 p-2.5">
         <div class="flex items-center gap-1.5">
           <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Paragon
+            Perks
           </p>
           <button
-            v-for="preset in ['none', 'keystones', 'full'] as Array<TreePreset>"
+            v-for="preset in ['none', 'legendary', 'full'] as Array<TreePreset>"
             :key="preset"
             type="button"
             class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold capitalize transition"
