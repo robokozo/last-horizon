@@ -22,6 +22,25 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-23',
+    title: 'Range Rover',
+    blurb: 'Mobile-friendly Training Range and a few visual touch-ups.',
+    notes: [
+      {
+        kind: 'fix',
+        text: 'The Training Range now works on phones: the control panel collapses into a slide-in drawer with a ☰ button, so the range fills the screen instead of being crowded out by the settings.',
+      },
+      {
+        kind: 'fix',
+        text: 'The Aegis shield now glows over every cannon, not just the first — each one charges and flashes with the block.',
+      },
+      {
+        kind: 'fix',
+        text: 'The consolation level-up cards (Stardust Cache, Field Repairs, Ammo Overcharge) now show up in a random order instead of always landing in the same slots.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-23',
     title: 'Scorched Sky',
     blurb: 'The thermal lance now brands the sky.',
     notes: [
