@@ -1,5 +1,7 @@
 export interface RunStats {
   damage: number
+  /** Veteran perk: weapon damage grows by this percent per player level (additive, applied mid-run) */
+  damagePerLevelPercent: number
   /** number of deployed cannons, each running its own fire cooldown */
   cannonCount: number
   fireIntervalMs: number

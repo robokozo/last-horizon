@@ -21,7 +21,7 @@ import {
 import { gameEventBus } from '@/game/eventBus'
 import { soundEngine } from '@/game/sound'
 import type { SandboxLayout, SandboxStatsEntry } from '@/game/types'
-import { SKILL_NODES, applyPrestige, buildStartingStats } from '@/skills/skillTree'
+import { PERKS, applyPrestige, buildStartingStats } from '@/skills/skillTree'
 
 type TreePreset = 'none' | 'keystones' | 'full'
 
@@ -73,15 +73,14 @@ let game: Phaser.Game | null = null
 let restartTimer: ReturnType<typeof setTimeout> | null = null
 const busUnsubscribes: Array<() => void> = []
 
+// each perk's id repeated once per rank, so buildStartingStats sums to the full effect
+const allPerkRanks = (filter: (perk: (typeof PERKS)[number]) => boolean): Array<string> =>
+  PERKS.filter(filter).flatMap((perk) => Array<string>(perk.maxRank).fill(perk.id))
+
 const PRESET_NODE_IDS: Record<TreePreset, Array<string>> = {
-  none: ['core'],
-  keystones: [
-    'core',
-    ...SKILL_NODES.filter((node) => node.kind === 'keystone' || node.id.endsWith('-expansion')).map(
-      (node) => node.id,
-    ),
-  ],
-  full: SKILL_NODES.map((node) => node.id),
+  none: [],
+  keystones: allPerkRanks((perk) => perk.rarity === 'legendary' && perk.special !== 'prestige'),
+  full: allPerkRanks((perk) => perk.special !== 'prestige'),
 }
 
 const totalDps = computed(() => statsEntries.value.reduce((sum, entry) => sum + entry.dps, 0))

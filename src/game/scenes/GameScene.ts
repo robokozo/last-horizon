@@ -423,6 +423,8 @@ export class GameScene extends Phaser.Scene {
 
   private hp = 0
   private level = 1
+  // Veteran perk: the starting damage that each level-up's bonus is figured from
+  private veteranBaseDamage = 0
   private xp = 0
   private xpToNext = 0
   private wave = 1
@@ -535,6 +537,8 @@ export class GameScene extends Phaser.Scene {
     this.cannonXs = CANNON_X_FRACTIONS.map((fraction) => Math.round(fraction * this.arenaWidth))
     this.buildingXs = BUILDING_X_FRACTIONS.map((fraction) => Math.round(fraction * this.arenaWidth))
     this.stats = { ...data.startingStats }
+    // Veteran scales damage off the run's starting damage, additively per level
+    this.veteranBaseDamage = data.startingStats.damage
     this.stardustMultiplier = data.stardustMultiplier
     this.capacitorCharge = 0
     this.runRerollsLeft = this.stats.rerollsPerRun
@@ -5695,6 +5699,10 @@ export class GameScene extends Phaser.Scene {
       this.level += 1
       this.xpToNext = this.xpRequiredForLevel({ level: this.level })
       this.pendingLevelUps += 1
+      // Veteran: each level adds a flat slice of the starting damage
+      if (this.stats.damagePerLevelPercent > 0) {
+        this.stats.damage += this.veteranBaseDamage * (this.stats.damagePerLevelPercent / 100)
+      }
     }
     if (this.pendingLevelUps > 0 && this.hasActiveOffer === false) {
       this.presentLevelUpOffer()

@@ -8,7 +8,6 @@ import WhatsNewOverlay from '@/components/WhatsNewOverlay.vue'
 import { PATCH_NOTES } from '@/data/patchNotes'
 import { damageNumbersEnabled, screenShakeEnabled } from '@/game/settings'
 import { soundEngine } from '@/game/sound'
-import { SKILL_NODES } from '@/skills/skillTree'
 import { useMetaStore } from '@/stores/metaStore'
 
 const metaStore = useMetaStore()
@@ -48,22 +47,8 @@ function grantDevPrestige(): void {
   metaStore.prestigeLevel += 1
 }
 function fillDevBoard(): void {
-  // grant exactly what the unbought nodes cost, then buy the board the real way
-  // (respects adjacency, keeps treeSpent correct) so stardust nets out unchanged
-  const remainingCost = SKILL_NODES.filter(
-    (node) => metaStore.unlockedNodeIdSet.has(node.id) === false,
-  ).reduce((sum, node) => sum + node.cost, 0)
-  metaStore.stardust += remainingCost
-  let unlockedAny = true
-  while (unlockedAny === true) {
-    unlockedAny = false
-    // each pass reads a fresh available-set (the getter recomputes as nodes unlock)
-    for (const nodeId of metaStore.availableNodeIdSet) {
-      if (metaStore.unlockNode({ nodeId }) === true) {
-        unlockedAny = true
-      }
-    }
-  }
+  // dev shortcut: max out every perk for free so a full build can be test-run
+  metaStore.maxAllPerks()
 }
 
 function onResetClick(): void {

@@ -1,20 +1,19 @@
 import { AEGIS_BLOCK_INTERVAL_MS, BASE_RUN_STATS, PRESTIGE } from '@/game/data/balance'
-import type { RunStats, UpgradeRarity } from '@/game/types'
+import type { RunStats } from '@/game/types'
 
-export type SkillNodeKind = 'root' | 'minor' | 'notable' | 'keystone'
+// ── Between-run progression: a flat PERK SHOP (no board) ───────────────
+// Perks are a flat list grouped only by rarity. Each perk is bought in
+// ranks; ranks are stored as repeated perk ids in the player's owned list,
+// so `aggregateEffects` (which sums per occurrence) turns ranks into totals
+// for free. Cost rises per rank; selling refunds a partial fraction.
 
-export type SkillBranch =
-  | 'core'
-  | 'offense'
-  | 'arsenal'
-  | 'tech'
-  | 'defense'
-  | 'sensors'
-  | 'fortune'
-  | 'reactor'
+export type PerkRarity = 'common' | 'rare' | 'epic' | 'legendary'
+
+export const RARITY_ORDER: Array<PerkRarity> = ['common', 'rare', 'epic', 'legendary']
 
 export type MetaStat =
   | 'damagePercent'
+  | 'damagePerLevelPercent'
   | 'fireRatePercent'
   | 'projectileSpeedPercent'
   | 'rangePercent'
@@ -24,6 +23,7 @@ export type MetaStat =
   | 'regenPerSecondFlat'
   | 'critMultiplierFlat'
   | 'aegisUnlockFlat'
+  | 'aegisIntervalReductionMs'
   | 'weaponSlotFlat'
   | 'weaponTierFlat'
   | 'cannonFlat'
@@ -39,715 +39,313 @@ export type MetaStat =
   | 'surgeDurationMsFlat'
   | 'passivePerWaveFlat'
   | 'interestPercentFlat'
+  | 'refundBonusPercent'
 
-export interface SkillEffect {
+export interface PerkEffect {
   stat: MetaStat
-  amount: number
+  /** added to the stat total for every rank owned */
+  amountPerRank: number
 }
 
-export interface SkillNode {
+export interface Perk {
   id: string
   name: string
   description: string
-  /** the node's own glyph on the board — every unique node has its own */
   icon: string
-  kind: SkillNodeKind
-  /** card-style tier — drives the node's color on the board, like card rarity */
-  tier: UpgradeRarity
-  branch: SkillBranch
-  cost: number
-  x: number
-  y: number
-  /** ids of nodes this node connects to (edges are bidirectional) */
-  connections: Array<string>
-  effects: Array<SkillEffect>
+  rarity: PerkRarity
+  /** highest rank that can be bought */
+  maxRank: number
+  /** stardust cost of rank 1; later ranks scale by RANK_COST_GROWTH */
+  baseCost: number
+  effects: Array<PerkEffect>
+  /** prestige is special: buying it advances prestige and wipes the build */
+  special?: 'prestige'
 }
 
-export const ROOT_NODE_ID = 'core'
+/** each additional rank in the same perk costs this much more than the last */
+export const RANK_COST_GROWTH = 1.35
 
-/** expansions override this to legendary — they're the board's chase nodes */
-const TIER_BY_KIND: Record<SkillNodeKind, UpgradeRarity> = {
-  root: 'common',
-  minor: 'common',
-  notable: 'rare',
-  keystone: 'epic',
-}
+/** floor on the aegis block interval no matter how many aegis ranks are bought */
+const AEGIS_MIN_INTERVAL_MS = 5_000
 
-// ── rotationally symmetric layout ─────────────────────────────────────
-// Six branches at 60° intervals share one slot geometry; only the content
-// differs per branch. Minors come in many small increments. Two rings link
-// adjacent branches: an inner one at the early tier and an outer one at the
-// late tier, so deep cross-branch pathing never has to return to the core.
+/** base fraction of stardust returned when selling a rank */
+export const BASE_REFUND_FRACTION = 0.5
+/** reclamation can raise the refund fraction no higher than this */
+export const MAX_REFUND_FRACTION = 0.9
 
-type SlotKey =
-  | 'entry'
-  | 'earlyA'
-  | 'earlyB'
-  | 'earlyC'
-  | 'midA'
-  | 'midB'
-  | 'midC'
-  | 'midD'
-  | 'notable'
-  | 'lateA'
-  | 'lateB'
-  | 'lateC'
-  | 'deepA'
-  | 'deepB'
-  | 'deepC'
-  | 'primeA'
-  | 'primeB'
-  | 'keystone'
-
-interface SlotLayout {
-  radius: number
-  angleOffsetDeg: number
-  kind: SkillNodeKind
-  cost: number
-}
-
-// price tiers track node power, not position: minors are pocket change so a
-// run always buys something, while keystones and expansions cost several
-// runs' worth of stardust — the real good nodes are earned, not stumbled into
-// radii and offsets sized for SEVEN branches at 51.4° — the tightest gap
-// (between adjacent branches' mid rings) stays ≥ ~100px so nothing overlaps
-const SLOT_LAYOUT: Record<SlotKey, SlotLayout> = {
-  entry: { radius: 130, angleOffsetDeg: 0, kind: 'minor', cost: 30 },
-  earlyA: { radius: 250, angleOffsetDeg: -16, kind: 'minor', cost: 40 },
-  earlyB: { radius: 250, angleOffsetDeg: 0, kind: 'minor', cost: 40 },
-  earlyC: { radius: 250, angleOffsetDeg: 16, kind: 'minor', cost: 40 },
-  midA: { radius: 375, angleOffsetDeg: -18, kind: 'minor', cost: 50 },
-  midB: { radius: 375, angleOffsetDeg: -6, kind: 'minor', cost: 50 },
-  midC: { radius: 375, angleOffsetDeg: 6, kind: 'minor', cost: 50 },
-  midD: { radius: 375, angleOffsetDeg: 18, kind: 'minor', cost: 50 },
-  notable: { radius: 500, angleOffsetDeg: 0, kind: 'notable', cost: 400 },
-  lateA: { radius: 625, angleOffsetDeg: -15, kind: 'minor', cost: 70 },
-  lateB: { radius: 625, angleOffsetDeg: 0, kind: 'minor', cost: 70 },
-  lateC: { radius: 625, angleOffsetDeg: 15, kind: 'minor', cost: 70 },
-  deepA: { radius: 750, angleOffsetDeg: -11, kind: 'minor', cost: 90 },
-  deepB: { radius: 750, angleOffsetDeg: 0, kind: 'minor', cost: 90 },
-  deepC: { radius: 750, angleOffsetDeg: 11, kind: 'minor', cost: 90 },
-  primeA: { radius: 860, angleOffsetDeg: -7, kind: 'minor', cost: 120 },
-  primeB: { radius: 860, angleOffsetDeg: 7, kind: 'minor', cost: 120 },
-  keystone: { radius: 965, angleOffsetDeg: 0, kind: 'keystone', cost: 2_000 },
-}
-
-const SLOT_CONNECTIONS: Record<SlotKey, Array<SlotKey>> = {
-  entry: ['earlyA', 'earlyB', 'earlyC'],
-  earlyA: ['midA', 'midB'],
-  earlyB: ['midB', 'midC'],
-  earlyC: ['midC', 'midD'],
-  midA: ['notable'],
-  midB: ['notable'],
-  midC: ['notable'],
-  midD: ['notable'],
-  notable: ['lateA', 'lateB', 'lateC'],
-  lateA: ['deepA'],
-  lateB: ['deepB'],
-  lateC: ['deepC'],
-  deepA: ['primeA'],
-  deepB: ['primeA', 'primeB'],
-  deepC: ['primeB'],
-  primeA: ['keystone'],
-  primeB: ['keystone'],
-  keystone: [],
-}
-
-/** which minor template each minor slot draws from (uniform across branches) */
-const MINOR_SLOT_TEMPLATE: Record<
-  Exclude<SlotKey, 'notable' | 'keystone'>,
-  'primary' | 'secondary'
-> = {
-  entry: 'primary',
-  earlyA: 'secondary',
-  earlyB: 'primary',
-  earlyC: 'secondary',
-  midA: 'primary',
-  midB: 'secondary',
-  midC: 'primary',
-  midD: 'secondary',
-  lateA: 'primary',
-  lateB: 'secondary',
-  lateC: 'primary',
-  deepA: 'secondary',
-  deepB: 'primary',
-  deepC: 'secondary',
-  primeA: 'primary',
-  primeB: 'secondary',
-}
-
-const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'] as const
-
-interface MinorTemplate {
-  name: string
-  icon: string
-  description: string
-  effects: Array<SkillEffect>
-}
-
-interface SlotContent {
-  name: string
-  icon: string
-  description: string
-  effects: Array<SkillEffect>
-}
-
-interface BranchDefinition {
-  id: Exclude<SkillBranch, 'core'>
-  angleDeg: number
-  minors: { primary: MinorTemplate; secondary: MinorTemplate }
-  notable: SlotContent
-  keystone: SlotContent
-}
-
-const BRANCH_DEFINITIONS: Array<BranchDefinition> = [
+export const PERKS: Array<Perk> = [
+  // ── Common — cheap incremental stats ────────────────────────────────
   {
-    id: 'offense',
-    angleDeg: 0,
-    minors: {
-      primary: {
-        name: 'Hardened Slugs',
-        icon: '🔩',
-        description: '+2% damage',
-        effects: [{ stat: 'damagePercent', amount: 2 }],
-      },
-      secondary: {
-        name: 'Targeting Optics',
-        icon: '🎯',
-        description: '+1.5% critical chance',
-        effects: [{ stat: 'critChancePercent', amount: 1.5 }],
-      },
-    },
-    notable: {
-      name: 'Heavy Rounds',
-      icon: '💥',
-      description: '+10% damage, +4% critical chance',
-      effects: [
-        { stat: 'damagePercent', amount: 10 },
-        { stat: 'critChancePercent', amount: 4 },
-      ],
-    },
-    keystone: {
-      name: 'Executioner',
-      icon: '☠️',
-      description: 'Keystone: +25% damage and +15% critical chance',
-      effects: [
-        { stat: 'damagePercent', amount: 25 },
-        { stat: 'critChancePercent', amount: 15 },
-      ],
-    },
+    id: 'damage',
+    name: 'Damage',
+    description: '+2% weapon damage per rank',
+    icon: '🔩',
+    rarity: 'common',
+    maxRank: 15,
+    baseCost: 30,
+    effects: [{ stat: 'damagePercent', amountPerRank: 2 }],
   },
   {
-    id: 'arsenal',
-    angleDeg: 51.43,
-    minors: {
-      primary: {
-        name: 'Rifled Barrels',
-        icon: '🌀',
-        description: '+2% projectile speed',
-        effects: [{ stat: 'projectileSpeedPercent', amount: 2 }],
-      },
-      secondary: {
-        name: 'Hollow Points',
-        icon: '🗡️',
-        description: '+1.5% damage',
-        effects: [{ stat: 'damagePercent', amount: 1.5 }],
-      },
-    },
-    notable: {
-      name: 'Tungsten Core',
-      icon: '💢',
-      description: 'Dense rounds: critical hits deal +0.5× damage',
-      effects: [{ stat: 'critMultiplierFlat', amount: 0.5 }],
-    },
-    keystone: {
-      name: 'Autoloaders',
-      icon: '♻️',
-      description: 'Keystone: automated loaders — every weapon system cycles 20% faster',
-      effects: [{ stat: 'fireRatePercent', amount: 20 }],
-    },
+    id: 'crit-chance',
+    name: 'Critical Chance',
+    description: '+1.5% critical strike chance per rank',
+    icon: '🎯',
+    rarity: 'common',
+    maxRank: 10,
+    baseCost: 32,
+    effects: [{ stat: 'critChancePercent', amountPerRank: 1.5 }],
   },
   {
-    id: 'tech',
-    angleDeg: 102.86,
-    minors: {
-      primary: {
-        name: 'Capacitor Banks',
-        icon: '⚡',
-        description: '+2% fire rate',
-        effects: [{ stat: 'fireRatePercent', amount: 2 }],
-      },
-      secondary: {
-        name: 'Coil Windings',
-        icon: '🧲',
-        description: '+2% projectile speed',
-        effects: [{ stat: 'projectileSpeedPercent', amount: 2 }],
-      },
-    },
-    notable: {
-      name: 'Overclock',
-      icon: '⏩',
-      description: '+8% fire rate, +8% projectile speed',
-      effects: [
-        { stat: 'fireRatePercent', amount: 8 },
-        { stat: 'projectileSpeedPercent', amount: 8 },
-      ],
-    },
-    keystone: {
-      name: 'Overdrive Core',
-      icon: '💠',
-      description: 'Keystone: critical strikes hit half again as hard (×3 damage instead of ×2)',
-      effects: [{ stat: 'critMultiplierFlat', amount: 1 }],
-    },
+    id: 'fire-rate',
+    name: 'Fire Rate',
+    description: '+2% fire rate (global haste) per rank',
+    icon: '⚡',
+    rarity: 'common',
+    maxRank: 12,
+    baseCost: 32,
+    effects: [{ stat: 'fireRatePercent', amountPerRank: 2 }],
   },
   {
-    id: 'defense',
-    angleDeg: 154.29,
-    minors: {
-      primary: {
-        name: 'Basalt Crust',
-        icon: '🪨',
-        description: '+5 max integrity',
-        effects: [{ stat: 'maxHpFlat', amount: 5 }],
-      },
-      secondary: {
-        name: 'Self-Sealing Rock',
-        icon: '🩹',
-        description: '+0.2 integrity regen per second',
-        effects: [{ stat: 'regenPerSecondFlat', amount: 0.2 }],
-      },
-    },
-    notable: {
-      name: 'Bulwark',
-      icon: '🧱',
-      description: '+40 max integrity, +1 integrity regen per second',
-      effects: [
-        { stat: 'maxHpFlat', amount: 40 },
-        { stat: 'regenPerSecondFlat', amount: 1 },
-      ],
-    },
-    keystone: {
-      name: 'Aegis Protocol',
-      icon: '🛡️',
-      description: 'Keystone: a planetary shield nullifies one invader impact every 12 seconds',
-      effects: [{ stat: 'aegisUnlockFlat', amount: 1 }],
-    },
+    id: 'projectile-speed',
+    name: 'Projectile Speed',
+    description: '+2% projectile speed per rank',
+    icon: '🌀',
+    rarity: 'common',
+    maxRank: 8,
+    baseCost: 28,
+    effects: [{ stat: 'projectileSpeedPercent', amountPerRank: 2 }],
   },
   {
-    id: 'sensors',
-    angleDeg: 205.71,
-    minors: {
-      primary: {
-        name: 'Wide-Band Radar',
-        icon: '📡',
-        description: '+2% targeting range',
-        effects: [{ stat: 'rangePercent', amount: 2 }],
-      },
-      secondary: {
-        name: 'Spectral Lens',
-        icon: '🔍',
-        description: '+1.5% critical chance',
-        effects: [{ stat: 'critChancePercent', amount: 1.5 }],
-      },
-    },
-    notable: {
-      name: 'Deep-Field Scanner',
-      icon: '🔭',
-      description: '+10% targeting range, +4% critical chance',
-      effects: [
-        { stat: 'rangePercent', amount: 10 },
-        { stat: 'critChancePercent', amount: 4 },
-      ],
-    },
-    keystone: {
-      name: 'Farsight Protocol',
-      icon: '👁️',
-      description: 'Keystone: +25% targeting range and +1 card to choose from on every level-up',
-      effects: [
-        { stat: 'rangePercent', amount: 25 },
-        { stat: 'cardChoiceFlat', amount: 1 },
-      ],
-    },
+    id: 'range',
+    name: 'Targeting Range',
+    description: '+2% targeting range per rank',
+    icon: '📡',
+    rarity: 'common',
+    maxRank: 8,
+    baseCost: 28,
+    effects: [{ stat: 'rangePercent', amountPerRank: 2 }],
   },
   {
-    id: 'fortune',
-    angleDeg: 257.14,
-    minors: {
-      primary: {
-        name: 'Survey Probes',
-        icon: '🛰️',
-        description: '+2.5% experience gained',
-        effects: [{ stat: 'xpPercent', amount: 2.5 }],
-      },
-      secondary: {
-        name: 'Salvage Rigs',
-        icon: '⛏️',
-        description: '+3% stardust earned',
-        effects: [{ stat: 'stardustPercent', amount: 3 }],
-      },
-    },
-    notable: {
-      name: 'Prospector',
-      icon: '💰',
-      description: '+15% stardust earned, +10% odds of rarer cards',
-      effects: [
-        { stat: 'stardustPercent', amount: 15 },
-        { stat: 'luckPercent', amount: 10 },
-      ],
-    },
-    keystone: {
-      name: 'Star Harvest',
-      icon: '🌟',
-      description: 'Keystone: +50% stardust, +20% experience, +15% odds of rarer cards',
-      effects: [
-        { stat: 'stardustPercent', amount: 50 },
-        { stat: 'xpPercent', amount: 20 },
-        { stat: 'luckPercent', amount: 15 },
-      ],
-    },
+    id: 'max-hp',
+    name: 'Max Integrity',
+    description: '+5 max integrity per rank',
+    icon: '🪨',
+    rarity: 'common',
+    maxRank: 15,
+    baseCost: 30,
+    effects: [{ stat: 'maxHpFlat', amountPerRank: 5 }],
   },
   {
-    id: 'reactor',
-    angleDeg: 308.57,
-    minors: {
-      primary: {
-        name: 'Dust Siphon',
-        icon: '🌫️',
-        description:
-          'Banks passive stardust that scales with the wave you reach — push deep, not shallow',
-        effects: [{ stat: 'passivePerWaveFlat', amount: 1 }],
-      },
-      secondary: {
-        name: 'Compound Cells',
-        icon: '🪙',
-        description: '+0.5% interest on unspent stardust after every run',
-        effects: [{ stat: 'interestPercentFlat', amount: 0.5 }],
-      },
-    },
-    notable: {
-      name: 'Compound Interest',
-      icon: '🏦',
-      description: 'Unspent stardust earns +5% interest at the end of every run',
-      effects: [{ stat: 'interestPercentFlat', amount: 5 }],
-    },
-    keystone: {
-      name: 'Capacitor Array',
-      icon: '🔋',
-      description:
-        'Keystone: unlock the capacitor — kills charge a battery, and at full charge every weapon surges with bonus damage while it discharges',
-      effects: [{ stat: 'capacitorUnlockFlat', amount: 1 }],
-    },
+    id: 'regen',
+    name: 'Integrity Regen',
+    description: '+0.2 integrity regen / sec per rank',
+    icon: '🩹',
+    rarity: 'common',
+    maxRank: 10,
+    baseCost: 34,
+    effects: [{ stat: 'regenPerSecondFlat', amountPerRank: 0.2 }],
   },
-]
-
-/**
- * Uniform utility slots: the same node appears at this slot on every branch,
- * so the board stays rotationally symmetric. One reroll cache per branch on
- * the mid ring, one banish cache per branch deep in.
- */
-const UNIFORM_SLOT_OVERRIDES: Partial<
-  Record<SlotKey, { kind: SkillNodeKind; cost: number; content: SlotContent }>
-> = {
-  midD: {
-    kind: 'notable',
-    cost: 250,
-    content: {
-      name: 'Tactical Reserve',
-      icon: '🔄',
-      description: '+1 card reroll per run',
-      effects: [{ stat: 'rerollFlat', amount: 1 }],
-    },
+  {
+    id: 'stardust',
+    name: 'Stardust Yield',
+    description: '+3% stardust earned per rank',
+    icon: '⛏️',
+    rarity: 'common',
+    maxRank: 10,
+    baseCost: 34,
+    effects: [{ stat: 'stardustPercent', amountPerRank: 3 }],
   },
-  deepC: {
-    kind: 'notable',
-    cost: 350,
-    content: {
-      name: 'Exclusion Protocol',
-      icon: '🚫',
-      description: '+1 card banish per run — strike an offered card from the rest of the run',
-      effects: [{ stat: 'banishFlat', amount: 1 }],
-    },
+  {
+    id: 'xp',
+    name: 'Experience',
+    description: '+2.5% experience gained per rank',
+    icon: '🛰️',
+    rarity: 'common',
+    maxRank: 10,
+    baseCost: 34,
+    effects: [{ stat: 'xpPercent', amountPerRank: 2.5 }],
   },
-}
 
-const SLOT_KEYS: Array<SlotKey> = [
-  'entry',
-  'earlyA',
-  'earlyB',
-  'earlyC',
-  'midA',
-  'midB',
-  'midC',
-  'midD',
-  'notable',
-  'lateA',
-  'lateB',
-  'lateC',
-  'deepA',
-  'deepB',
-  'deepC',
-  'primeA',
-  'primeB',
-  'keystone',
-]
+  // ── Rare — stronger / secondary stats ───────────────────────────────
+  {
+    id: 'crit-damage',
+    name: 'Critical Damage',
+    description: '+0.25× critical strike multiplier per rank',
+    icon: '💢',
+    rarity: 'rare',
+    maxRank: 10,
+    baseCost: 120,
+    effects: [{ stat: 'critMultiplierFlat', amountPerRank: 0.25 }],
+  },
+  {
+    id: 'luck',
+    name: 'Luck',
+    description: '+10% odds of rarer cards per rank',
+    icon: '🍀',
+    rarity: 'rare',
+    maxRank: 5,
+    baseCost: 140,
+    effects: [{ stat: 'luckPercent', amountPerRank: 10 }],
+  },
+  {
+    id: 'interest',
+    name: 'Compound Interest',
+    description: '+1% interest on unspent stardust per rank',
+    icon: '🪙',
+    rarity: 'rare',
+    maxRank: 10,
+    baseCost: 130,
+    effects: [{ stat: 'interestPercentFlat', amountPerRank: 1 }],
+  },
+  {
+    id: 'passive-income',
+    name: 'Dust Siphon',
+    description: '+1 passive stardust per wave reached, per rank',
+    icon: '🌫️',
+    rarity: 'rare',
+    maxRank: 10,
+    baseCost: 130,
+    effects: [{ stat: 'passivePerWaveFlat', amountPerRank: 1 }],
+  },
+  {
+    id: 'reclamation',
+    name: 'Reclamation',
+    description: '+5% sell refund per rank (up to a 90% cap)',
+    icon: '♻️',
+    rarity: 'rare',
+    maxRank: 8,
+    baseCost: 110,
+    effects: [{ stat: 'refundBonusPercent', amountPerRank: 5 }],
+  },
 
-function nodeIdFor({ branchId, slot }: { branchId: string; slot: SlotKey }): string {
-  return `${branchId}-${slot}`
-}
+  // ── Epic — capacity ─────────────────────────────────────────────────
+  {
+    id: 'weapon-count',
+    name: 'Weapon Count',
+    description: '+1 weapon slot per rank',
+    icon: '🗄️',
+    rarity: 'epic',
+    maxRank: 3,
+    baseCost: 800,
+    effects: [{ stat: 'weaponSlotFlat', amountPerRank: 1 }],
+  },
+  {
+    id: 'weapon-level',
+    name: 'Weapon Level Cap',
+    description: '+1 max weapon tier (rank past ★5) per rank',
+    icon: '🧪',
+    rarity: 'epic',
+    maxRank: 3,
+    baseCost: 800,
+    effects: [{ stat: 'weaponTierFlat', amountPerRank: 1 }],
+  },
+  {
+    id: 'card-choice',
+    name: 'Card Choice',
+    description: '+1 card to choose from on every level-up',
+    icon: '🔭',
+    rarity: 'epic',
+    maxRank: 1,
+    baseCost: 900,
+    effects: [{ stat: 'cardChoiceFlat', amountPerRank: 1 }],
+  },
+  {
+    id: 'reroll',
+    name: 'Tactical Reserve',
+    description: '+1 card reroll per run, per rank',
+    icon: '🔄',
+    rarity: 'epic',
+    maxRank: 2,
+    baseCost: 700,
+    effects: [{ stat: 'rerollFlat', amountPerRank: 1 }],
+  },
+  {
+    id: 'banish',
+    name: 'Exclusion Protocol',
+    description: '+1 card banish per run, per rank',
+    icon: '🚫',
+    rarity: 'epic',
+    maxRank: 2,
+    baseCost: 700,
+    effects: [{ stat: 'banishFlat', amountPerRank: 1 }],
+  },
 
-function polarPoint({ radius, angleDeg }: { radius: number; angleDeg: number }): {
-  x: number
-  y: number
-} {
-  const angleRad = (angleDeg * Math.PI) / 180
-  return {
-    x: Math.round(Math.cos(angleRad) * radius),
-    y: Math.round(Math.sin(angleRad) * radius),
-  }
-}
-
-function buildBranchNodes({ branch }: { branch: BranchDefinition }): Array<SkillNode> {
-  const templateCounts = { primary: 0, secondary: 0 }
-
-  return SLOT_KEYS.map((slot) => {
-    const layout = SLOT_LAYOUT[slot]
-    const { x, y } = polarPoint({
-      radius: layout.radius,
-      angleDeg: branch.angleDeg + layout.angleOffsetDeg,
-    })
-
-    const override = UNIFORM_SLOT_OVERRIDES[slot]
-
-    let content: SlotContent
-    let kind = layout.kind
-    let cost = layout.cost
-    if (override !== undefined) {
-      content = override.content
-      kind = override.kind
-      cost = override.cost
-    } else if (slot === 'notable') {
-      content = branch.notable
-    } else if (slot === 'keystone') {
-      content = branch.keystone
-    } else {
-      const templateKey = MINOR_SLOT_TEMPLATE[slot]
-      const template = branch.minors[templateKey]
-      templateCounts[templateKey] += 1
-      content = {
-        name: `${template.name} ${ROMAN_NUMERALS[templateCounts[templateKey] - 1]}`,
-        icon: template.icon,
-        description: template.description,
-        effects: template.effects,
-      }
-    }
-
-    return {
-      id: nodeIdFor({ branchId: branch.id, slot }),
-      name: content.name,
-      description: content.description,
-      icon: content.icon,
-      kind,
-      tier: TIER_BY_KIND[kind],
-      branch: branch.id,
-      cost,
-      x,
-      y,
-      connections: SLOT_CONNECTIONS[slot].map((targetSlot) =>
-        nodeIdFor({ branchId: branch.id, slot: targetSlot }),
-      ),
-      effects: content.effects,
-    }
-  })
-}
-
-function buildSkillNodes(): Array<SkillNode> {
-  const rootNode: SkillNode = {
-    id: ROOT_NODE_ID,
-    name: 'Planetary Core',
-    icon: '🌐',
-    description: 'The heart of your world. All paths begin here.',
-    kind: 'root',
-    tier: 'common',
-    branch: 'core',
-    cost: 0,
-    x: 0,
-    y: 0,
-    connections: BRANCH_DEFINITIONS.map((branch) =>
-      nodeIdFor({ branchId: branch.id, slot: 'entry' }),
-    ),
+  // ── Legendary — system unlocks + build-definers ─────────────────────
+  {
+    id: 'aegis',
+    name: 'Aegis',
+    description:
+      'Rank 1 unlocks a planetary shield that nullifies one invader impact every 12s; higher ranks shorten the interval.',
+    icon: '🛡️',
+    rarity: 'legendary',
+    maxRank: 4,
+    baseCost: 3_000,
+    effects: [
+      { stat: 'aegisUnlockFlat', amountPerRank: 1 },
+      { stat: 'aegisIntervalReductionMs', amountPerRank: 1_500 },
+    ],
+  },
+  {
+    id: 'surge',
+    name: 'Surge',
+    description:
+      'Rank 1 unlocks the capacitor — kills charge a battery, and at full charge every weapon surges; higher ranks charge faster and surge harder.',
+    icon: '🔋',
+    rarity: 'legendary',
+    maxRank: 6,
+    baseCost: 3_000,
+    effects: [
+      { stat: 'capacitorUnlockFlat', amountPerRank: 1 },
+      { stat: 'capacitorChargePercent', amountPerRank: 15 },
+      { stat: 'surgeDamagePercent', amountPerRank: 10 },
+    ],
+  },
+  {
+    id: 'veteran',
+    name: 'Veteran',
+    description:
+      '+0.5% weapon damage per player level, per rank — the longer you survive, the deadlier you get.',
+    icon: '🎖️',
+    rarity: 'legendary',
+    maxRank: 4,
+    baseCost: 3_000,
+    effects: [{ stat: 'damagePerLevelPercent', amountPerRank: 0.5 }],
+  },
+  {
+    id: 'prestige',
+    name: 'Prestige',
+    description:
+      'Costs a fortune and RESETS all purchased perks — in exchange, you permanently staff one more gun emplacement.',
+    icon: '⟴',
+    rarity: 'legendary',
+    maxRank: PRESTIGE.maxCannons,
+    baseCost: 25_000,
     effects: [],
-  }
+    special: 'prestige',
+  },
+]
 
-  const branchNodes = BRANCH_DEFINITIONS.flatMap((branch) => buildBranchNodes({ branch }))
+export const PERKS_BY_ID: Map<string, Perk> = new Map(PERKS.map((perk) => [perk.id, perk]))
 
-  // ring links between adjacent branches: inner at the early tier, outer at
-  // the late tier — deep builds can path around the board without the core
-  const addRingLink = ({ fromId, toId }: { fromId: string; toId: string }): void => {
-    const fromNode = branchNodes.find((node) => node.id === fromId)
-    if (fromNode !== undefined) {
-      fromNode.connections = [...fromNode.connections, toId]
-    }
-  }
-  for (let index = 0; index < BRANCH_DEFINITIONS.length; index += 1) {
-    const current = BRANCH_DEFINITIONS[index]
-    const next = BRANCH_DEFINITIONS[(index + 1) % BRANCH_DEFINITIONS.length]
-    addRingLink({
-      fromId: nodeIdFor({ branchId: current.id, slot: 'earlyC' }),
-      toId: nodeIdFor({ branchId: next.id, slot: 'earlyA' }),
-    })
-    addRingLink({
-      fromId: nodeIdFor({ branchId: current.id, slot: 'lateC' }),
-      toId: nodeIdFor({ branchId: next.id, slot: 'lateA' }),
-    })
-  }
-
-  // expansion nodes: the deepest investments, one hanging beyond every keystone
-  const EXPANSION_RADIUS = 1_100
-  const expansionNodes: Array<SkillNode> = [
-    {
-      id: 'offense-expansion',
-      name: 'Forward Battery',
-      icon: '🔫',
-      description: '+1 cannon — start every run with an additional emplacement',
-      kind: 'notable',
-      tier: 'legendary',
-      branch: 'offense',
-      cost: 3_000,
-      ...polarPoint({ radius: EXPANSION_RADIUS, angleDeg: 0 }),
-      connections: [],
-      effects: [{ stat: 'cannonFlat', amount: 1 }],
-    },
-    {
-      id: 'arsenal-expansion',
-      name: 'Ordnance Bay',
-      icon: '📦',
-      description: '+1 weapon slot — carry an additional weapon type each run',
-      kind: 'notable',
-      tier: 'legendary',
-      branch: 'arsenal',
-      cost: 3_400,
-      ...polarPoint({ radius: EXPANSION_RADIUS, angleDeg: 51.43 }),
-      connections: [],
-      effects: [{ stat: 'weaponSlotFlat', amount: 1 }],
-    },
-    {
-      id: 'tech-expansion',
-      name: 'Prototype Lab',
-      icon: '🧪',
-      description: '+1 maximum tier on every weapon card — keep ranking up past ★5',
-      kind: 'notable',
-      tier: 'legendary',
-      branch: 'tech',
-      cost: 4_000,
-      ...polarPoint({ radius: EXPANSION_RADIUS, angleDeg: 102.86 }),
-      connections: [],
-      effects: [{ stat: 'weaponTierFlat', amount: 1 }],
-    },
-    {
-      id: 'defense-expansion',
-      name: 'Bastion Emplacement',
-      icon: '🏰',
-      description: '+1 cannon — start every run with an additional emplacement',
-      kind: 'notable',
-      tier: 'legendary',
-      branch: 'defense',
-      cost: 3_000,
-      ...polarPoint({ radius: EXPANSION_RADIUS, angleDeg: 154.29 }),
-      connections: [],
-      effects: [{ stat: 'cannonFlat', amount: 1 }],
-    },
-    {
-      id: 'sensors-expansion',
-      name: 'Modular Racks',
-      icon: '🗄️',
-      description: '+1 weapon slot — carry an additional weapon type each run',
-      kind: 'notable',
-      tier: 'legendary',
-      branch: 'sensors',
-      cost: 3_400,
-      ...polarPoint({ radius: EXPANSION_RADIUS, angleDeg: 205.71 }),
-      connections: [],
-      effects: [{ stat: 'weaponSlotFlat', amount: 1 }],
-    },
-    {
-      id: 'fortune-expansion',
-      name: 'Star Forge',
-      icon: '🔨',
-      description: '+1 maximum tier on every weapon card — keep ranking up past ★5',
-      kind: 'notable',
-      tier: 'legendary',
-      branch: 'fortune',
-      cost: 4_000,
-      ...polarPoint({ radius: EXPANSION_RADIUS, angleDeg: 257.14 }),
-      connections: [],
-      effects: [{ stat: 'weaponTierFlat', amount: 1 }],
-    },
-    {
-      id: 'reactor-expansion',
-      name: 'Overcharge Core',
-      icon: '☢️',
-      description: 'The capacitor charges +40% faster and surges hit +40% harder',
-      kind: 'notable',
-      tier: 'legendary',
-      branch: 'reactor',
-      cost: 3_000,
-      ...polarPoint({ radius: EXPANSION_RADIUS, angleDeg: 308.57 }),
-      connections: [],
-      effects: [
-        { stat: 'capacitorChargePercent', amount: 40 },
-        { stat: 'surgeDamagePercent', amount: 40 },
-      ],
-    },
-  ]
-  for (const expansion of expansionNodes) {
-    const keystone = branchNodes.find(
-      (node) => node.id === nodeIdFor({ branchId: expansion.branch, slot: 'keystone' }),
-    )
-    if (keystone !== undefined) {
-      keystone.connections = [...keystone.connections, expansion.id]
-    }
-  }
-
-  return [rootNode, ...branchNodes, ...expansionNodes]
+/** stardust cost of buying the given rank (1-based) of a perk */
+export function perkCostForRank({ perk, rank }: { perk: Perk; rank: number }): number {
+  return Math.round(perk.baseCost * RANK_COST_GROWTH ** (rank - 1))
 }
 
-export const SKILL_NODES: Array<SkillNode> = buildSkillNodes()
-
-export const SKILL_NODES_BY_ID: Map<string, SkillNode> = new Map(
-  SKILL_NODES.map((node) => [node.id, node]),
-)
-
-/** Every bidirectional edge exactly once, as [fromId, toId] pairs. */
-export const SKILL_EDGES: Array<[string, string]> = SKILL_NODES.flatMap((node) =>
-  node.connections.map((targetId): [string, string] => [node.id, targetId]),
-)
-
-export function listAdjacentNodeIds({ nodeId }: { nodeId: string }): Array<string> {
-  const adjacent = new Set<string>()
-  for (const [fromId, toId] of SKILL_EDGES) {
-    if (fromId === nodeId) {
-      adjacent.add(toId)
-    }
-    if (toId === nodeId) {
-      adjacent.add(fromId)
-    }
-  }
-  return [...adjacent]
-}
-
+/** sum every owned perk's effects into stat totals — ranks are repeated ids */
 export function aggregateEffects({
   unlockedNodeIds,
 }: {
   unlockedNodeIds: Array<string>
 }): Map<MetaStat, number> {
   const totals = new Map<MetaStat, number>()
-  for (const nodeId of unlockedNodeIds) {
-    const node = SKILL_NODES_BY_ID.get(nodeId)
-    if (node === undefined) {
+  for (const perkId of unlockedNodeIds) {
+    const perk = PERKS_BY_ID.get(perkId)
+    if (perk === undefined) {
       continue
     }
-    for (const effect of node.effects) {
-      totals.set(effect.stat, (totals.get(effect.stat) ?? 0) + effect.amount)
+    for (const effect of perk.effects) {
+      totals.set(effect.stat, (totals.get(effect.stat) ?? 0) + effect.amountPerRank)
     }
   }
   return totals
@@ -783,6 +381,7 @@ export function buildStartingStats({
     cannonCount: BASE_RUN_STATS.cannonCount + valueOf('cannonFlat'),
     weaponTierBonus: BASE_RUN_STATS.weaponTierBonus + valueOf('weaponTierFlat'),
     damage: BASE_RUN_STATS.damage * (1 + valueOf('damagePercent') / 100),
+    damagePerLevelPercent: BASE_RUN_STATS.damagePerLevelPercent + valueOf('damagePerLevelPercent'),
     fireIntervalMs: BASE_RUN_STATS.fireIntervalMs / (1 + valueOf('fireRatePercent') / 100),
     projectileSpeed: BASE_RUN_STATS.projectileSpeed * (1 + valueOf('projectileSpeedPercent') / 100),
     range: BASE_RUN_STATS.range * (1 + valueOf('rangePercent') / 100),
@@ -795,7 +394,13 @@ export function buildStartingStats({
     weaponCooldownFactor:
       BASE_RUN_STATS.weaponCooldownFactor / (1 + valueOf('fireRatePercent') / 100),
     critMultiplier: BASE_RUN_STATS.critMultiplier + valueOf('critMultiplierFlat'),
-    aegisIntervalMs: valueOf('aegisUnlockFlat') > 0 ? AEGIS_BLOCK_INTERVAL_MS : null,
+    aegisIntervalMs:
+      valueOf('aegisUnlockFlat') > 0
+        ? Math.max(
+            AEGIS_MIN_INTERVAL_MS,
+            AEGIS_BLOCK_INTERVAL_MS - valueOf('aegisIntervalReductionMs'),
+          )
+        : null,
     weaponSlots: BASE_RUN_STATS.weaponSlots + valueOf('weaponSlotFlat'),
     cardChoices: BASE_RUN_STATS.cardChoices + valueOf('cardChoiceFlat'),
     rerollsPerRun: BASE_RUN_STATS.rerollsPerRun + valueOf('rerollFlat'),
@@ -828,4 +433,15 @@ export function interestPercentFrom({
 }): number {
   const totals = aggregateEffects({ unlockedNodeIds })
   return totals.get('interestPercentFlat') ?? 0
+}
+
+/** fraction of stardust returned when selling, raised by Reclamation up to the cap */
+export function refundFractionFrom({
+  unlockedNodeIds,
+}: {
+  unlockedNodeIds: Array<string>
+}): number {
+  const totals = aggregateEffects({ unlockedNodeIds })
+  const bonus = (totals.get('refundBonusPercent') ?? 0) / 100
+  return Math.min(MAX_REFUND_FRACTION, BASE_REFUND_FRACTION + bonus)
 }

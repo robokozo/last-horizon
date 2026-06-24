@@ -5,11 +5,12 @@ import { computed } from 'vue'
 import { UPGRADE_DEFINITIONS } from '@/game/data/upgrades'
 import type { RunResult } from '@/game/types'
 import {
-  ROOT_NODE_ID,
-  SKILL_NODES,
-  SKILL_NODES_BY_ID,
+  PERKS,
+  PERKS_BY_ID,
+  type Perk,
   interestPercentFrom,
-  listAdjacentNodeIds,
+  perkCostForRank,
+  refundFractionFrom,
 } from '@/skills/skillTree'
 
 /** display names for the weapon cards, so favorites can be shown without the run loaded */
@@ -32,7 +33,7 @@ export interface RunHistoryEntry {
   /** ISO timestamp the run ended */
   date: string
   prestigeLevel: number
-  /** paragon nodes owned for this run */
+  /** owned perk ranks for this run (perk ids repeated per rank) */
   unlockedNodeIds: Array<string>
   result: RunResult
 }
@@ -47,19 +48,38 @@ const DEFAULT_LIFETIME_STATS: LifetimeStats = {
   totalStardustEarned: 0,
 }
 
+/** how many ranks of a perk are owned, given the repeated-id list */
+function rankOf({ ids, perkId }: { ids: Array<string>; perkId: string }): number {
+  let count = 0
+  for (const id of ids) {
+    if (id === perkId) {
+      count += 1
+    }
+  }
+  return count
+}
+
+/** total stardust currently sunk into all owned perk ranks */
+function sunkStardust({ ids }: { ids: Array<string> }): number {
+  const counts = new Map<string, number>()
+  let total = 0
+  for (const id of ids) {
+    const perk = PERKS_BY_ID.get(id)
+    if (perk === undefined) {
+      continue
+    }
+    const rank = (counts.get(id) ?? 0) + 1
+    counts.set(id, rank)
+    total += perkCostForRank({ perk, rank })
+  }
+  return total
+}
+
 export const useMetaStore = defineStore('meta', () => {
   const stardust = useLocalStorage<number>('pd-stardust', 0)
-  const unlockedNodeIds = useLocalStorage<Array<string>>('pd-unlocked-nodes', [ROOT_NODE_ID])
+  // perks are stored as repeated ids — one entry per owned rank
+  const unlockedNodeIds = useLocalStorage<Array<string>>('pd-unlocked-nodes', [])
   const lifetime = useLocalStorage<LifetimeStats>('pd-lifetime', { ...DEFAULT_LIFETIME_STATS })
-  // what the tree actually cost so resets refund exactly that — saves from
-  // before paragon cost scaling paid flat base costs, hence the default
-  const treeSpent = useLocalStorage<number>(
-    'pd-tree-spent',
-    unlockedNodeIds.value.reduce(
-      (sum, nodeId) => sum + (SKILL_NODES_BY_ID.get(nodeId)?.cost ?? 0),
-      0,
-    ),
-  )
   const prestigeLevel = useLocalStorage<number>('pd-prestige', 0)
   // how many times each weapon card has been picked across all runs — drives the
   // "favorite weapons" readout. Lifetime preference data, so it survives prestige.
@@ -67,18 +87,13 @@ export const useMetaStore = defineStore('meta', () => {
   // a rolling log of finished runs for export + DPS analysis (device-local)
   const runHistory = useLocalStorage<Array<RunHistoryEntry>>('pd-run-history', [])
 
-  // saves from before a tree redesign reference node ids that no longer
-  // exist: reset the tree and refund everything ever earned
-  const hasUnknownNode = unlockedNodeIds.value.some(
-    (nodeId) => SKILL_NODES_BY_ID.has(nodeId) === false,
-  )
+  // saves from before the perk-shop redesign reference ids that no longer exist:
+  // wipe the owned perks and refund everything ever earned so nothing is lost
+  const hasUnknownNode = unlockedNodeIds.value.some((nodeId) => PERKS_BY_ID.has(nodeId) === false)
   if (hasUnknownNode === true) {
-    unlockedNodeIds.value = [ROOT_NODE_ID]
+    unlockedNodeIds.value = []
     stardust.value = lifetime.value.totalStardustEarned
-    treeSpent.value = 0
   }
-
-  const unlockedNodeIdSet = computed(() => new Set(unlockedNodeIds.value))
 
   /** weapons the player picks most, most-picked first — for the home favorites list */
   const favoriteWeapons = computed(() =>
@@ -93,80 +108,120 @@ export const useMetaStore = defineStore('meta', () => {
     weaponPicks.value = { ...weaponPicks.value, [id]: (weaponPicks.value[id] ?? 0) + 1 }
   }
 
-  /** points bought so far (the free root doesn't count) — board progress */
-  const paragonLevel = computed(() => Math.max(0, unlockedNodeIds.value.length - 1))
+  /** total perk ranks bought — the progression metric */
+  const paragonLevel = computed(() => unlockedNodeIds.value.length)
 
-  /** node prices are flat — this stays the single lookup the UI and unlocks share */
-  function nodeCostOf({ nodeId }: { nodeId: string }): number {
-    return SKILL_NODES_BY_ID.get(nodeId)?.cost ?? 0
+  /** fraction of stardust returned on a sell, raised by Reclamation */
+  const refundFraction = computed(() =>
+    refundFractionFrom({ unlockedNodeIds: unlockedNodeIds.value }),
+  )
+
+  /** ranks owned of a perk (for prestige, the prestige level) */
+  function perkRank({ perkId }: { perkId: string }): number {
+    const perk = PERKS_BY_ID.get(perkId)
+    if (perk?.special === 'prestige') {
+      return prestigeLevel.value
+    }
+    return rankOf({ ids: unlockedNodeIds.value, perkId })
   }
 
-  const availableNodeIdSet = computed(() => {
-    const available = new Set<string>()
-    for (const nodeId of unlockedNodeIds.value) {
-      for (const adjacentId of listAdjacentNodeIds({ nodeId })) {
-        if (unlockedNodeIdSet.value.has(adjacentId) === false) {
-          available.add(adjacentId)
-        }
+  /** stardust price of the NEXT rank of a perk (0 if already maxed) */
+  function nextPerkCost({ perkId }: { perkId: string }): number {
+    const perk = PERKS_BY_ID.get(perkId)
+    if (perk === undefined) {
+      return 0
+    }
+    const rank = perkRank({ perkId })
+    if (rank >= perk.maxRank) {
+      return 0
+    }
+    return perkCostForRank({ perk, rank: rank + 1 })
+  }
+
+  function canBuyPerk({ perkId }: { perkId: string }): boolean {
+    const perk = PERKS_BY_ID.get(perkId)
+    if (perk === undefined) {
+      return false
+    }
+    if (perkRank({ perkId }) >= perk.maxRank) {
+      return false
+    }
+    return stardust.value >= nextPerkCost({ perkId })
+  }
+
+  /** buy one rank of a perk; prestige is special (advances prestige, wipes perks) */
+  function buyPerk({ perkId }: { perkId: string }): boolean {
+    const perk = PERKS_BY_ID.get(perkId)
+    if (perk === undefined || canBuyPerk({ perkId }) === false) {
+      return false
+    }
+    const cost = nextPerkCost({ perkId })
+    stardust.value -= cost
+    if (perk.special === 'prestige') {
+      prestigeLevel.value += 1
+      unlockedNodeIds.value = []
+      return true
+    }
+    unlockedNodeIds.value = [...unlockedNodeIds.value, perkId]
+    return true
+  }
+
+  /** sell one rank of a perk for a partial refund; prestige can't be sold */
+  function sellPerk({ perkId }: { perkId: string }): boolean {
+    const perk = PERKS_BY_ID.get(perkId)
+    if (perk === undefined || perk.special === 'prestige') {
+      return false
+    }
+    const rank = rankOf({ ids: unlockedNodeIds.value, perkId })
+    if (rank <= 0) {
+      return false
+    }
+    const refund = Math.floor(perkCostForRank({ perk, rank }) * refundFraction.value)
+    const index = unlockedNodeIds.value.lastIndexOf(perkId)
+    unlockedNodeIds.value = [
+      ...unlockedNodeIds.value.slice(0, index),
+      ...unlockedNodeIds.value.slice(index + 1),
+    ]
+    stardust.value += refund
+    return true
+  }
+
+  /** sell every owned perk back at the current refund fraction */
+  function resetTree(): void {
+    const refund = Math.floor(sunkStardust({ ids: unlockedNodeIds.value }) * refundFraction.value)
+    stardust.value += refund
+    unlockedNodeIds.value = []
+  }
+
+  /** true once every non-prestige perk is at max rank */
+  const isParagonComplete = computed(() =>
+    PERKS.every(
+      (perk) => perk.special === 'prestige' || perkRank({ perkId: perk.id }) >= perk.maxRank,
+    ),
+  )
+
+  /** total stardust currently invested in perks (for display) */
+  const totalSpentOnTree = computed(() => sunkStardust({ ids: unlockedNodeIds.value }))
+
+  /** dev helper: max out every non-prestige perk for free */
+  function maxAllPerks(): void {
+    const next: Array<string> = [...unlockedNodeIds.value]
+    for (const perk of PERKS) {
+      if (perk.special === 'prestige') {
+        continue
+      }
+      const have = rankOf({ ids: next, perkId: perk.id })
+      for (let rank = have; rank < perk.maxRank; rank += 1) {
+        next.push(perk.id)
       }
     }
-    return available
-  })
-
-  function canUnlockNode({ nodeId }: { nodeId: string }): boolean {
-    const node = SKILL_NODES_BY_ID.get(nodeId)
-    if (node === undefined) {
-      return false
-    }
-    if (unlockedNodeIdSet.value.has(nodeId) === true) {
-      return false
-    }
-    if (availableNodeIdSet.value.has(nodeId) === false) {
-      return false
-    }
-    return stardust.value >= nodeCostOf({ nodeId })
+    unlockedNodeIds.value = next
   }
 
-  function unlockNode({ nodeId }: { nodeId: string }): boolean {
-    if (canUnlockNode({ nodeId }) === false) {
-      return false
-    }
-    const cost = nodeCostOf({ nodeId })
-    stardust.value -= cost
-    treeSpent.value += cost
-    unlockedNodeIds.value = [...unlockedNodeIds.value, nodeId]
-    return true
-  }
-
-  function resetTree(): void {
-    stardust.value += treeSpent.value
-    treeSpent.value = 0
-    unlockedNodeIds.value = [ROOT_NODE_ID]
-  }
-
-  /** prestige unlocks only when every node on the paragon board is bought */
-  const isParagonComplete = computed(() => unlockedNodeIds.value.length >= SKILL_NODES.length)
-
-  /**
-   * Prestige: wipe stardust and the tree (no refund — the board is the price)
-   * and pull the view back one step. Lifetime stats and settings survive.
-   */
-  function prestige(): boolean {
-    if (isParagonComplete.value === false) {
-      return false
-    }
-    prestigeLevel.value += 1
-    stardust.value = 0
-    treeSpent.value = 0
-    unlockedNodeIds.value = [ROOT_NODE_ID]
-    return true
-  }
-
-  /** wipe the save entirely: stardust, tree, lifetime stats, prestige, favorites */
+  /** wipe the save entirely: stardust, perks, lifetime stats, prestige, favorites */
   function resetAllProgress(): void {
     stardust.value = 0
-    unlockedNodeIds.value = [ROOT_NODE_ID]
-    treeSpent.value = 0
+    unlockedNodeIds.value = []
     prestigeLevel.value = 0
     lifetime.value = { ...DEFAULT_LIFETIME_STATS }
     weaponPicks.value = {}
@@ -175,16 +230,14 @@ export const useMetaStore = defineStore('meta', () => {
 
   /**
    * A copyable code for moving progress between devices. It carries only the
-   * progression that matters — stardust and the paragon tree (with its spend and
-   * prestige). Device-local extras like lifetime stats and favorite weapons are
-   * deliberately left out, so a transfer doesn't clobber the destination's history.
+   * progression that matters — stardust and owned perks (with prestige). Device-local
+   * extras like lifetime stats and favorite weapons are deliberately left out.
    */
   function exportSave(): string {
     const payload = {
-      version: 1,
+      version: 2,
       stardust: stardust.value,
       unlockedNodeIds: unlockedNodeIds.value,
-      treeSpent: treeSpent.value,
       prestigeLevel: prestigeLevel.value,
     }
     return btoa(JSON.stringify(payload))
@@ -192,13 +245,10 @@ export const useMetaStore = defineStore('meta', () => {
 
   function importSave({ code }: { code: string }): boolean {
     try {
-      // older codes may also carry lifetime/weaponPicks; we simply ignore them now,
-      // leaving this device's own stats and favorites untouched
       const payload = JSON.parse(atob(code.trim())) as {
         version?: number
         stardust?: number
         unlockedNodeIds?: Array<string>
-        treeSpent?: number
         prestigeLevel?: number
       }
       if (
@@ -208,21 +258,10 @@ export const useMetaStore = defineStore('meta', () => {
         return false
       }
       stardust.value = payload.stardust
-      // unknown node ids (older tree layouts) fall back to the refund migration on reload
+      // keep only ids that exist in the current perk set (old layouts drop out)
       unlockedNodeIds.value = payload.unlockedNodeIds.filter(
-        (nodeId): nodeId is string => typeof nodeId === 'string',
+        (nodeId): nodeId is string => typeof nodeId === 'string' && PERKS_BY_ID.has(nodeId),
       )
-      if (unlockedNodeIds.value.includes(ROOT_NODE_ID) === false) {
-        unlockedNodeIds.value = [ROOT_NODE_ID, ...unlockedNodeIds.value]
-      }
-      // codes from before paragon cost scaling carry no spend — assume flat base costs
-      treeSpent.value =
-        typeof payload.treeSpent === 'number'
-          ? payload.treeSpent
-          : unlockedNodeIds.value.reduce(
-              (sum, nodeId) => sum + (SKILL_NODES_BY_ID.get(nodeId)?.cost ?? 0),
-              0,
-            )
       prestigeLevel.value = typeof payload.prestigeLevel === 'number' ? payload.prestigeLevel : 0
       return true
     } catch {
@@ -231,7 +270,7 @@ export const useMetaStore = defineStore('meta', () => {
   }
 
   function recordRun({ result }: { result: RunResult }): void {
-    // compound reactor keystone: the dust that sat unspent through the run pays interest
+    // compound interest: the dust that sat unspent through the run pays interest
     const interestPercent = interestPercentFrom({ unlockedNodeIds: unlockedNodeIds.value })
     const interest = Math.floor((stardust.value * interestPercent) / 100)
     stardust.value += result.stardustEarned + interest
@@ -260,7 +299,10 @@ export const useMetaStore = defineStore('meta', () => {
     runHistory.value = []
   }
 
-  const totalSpentOnTree = computed(() => treeSpent.value)
+  /** the perks list, for the shop UI */
+  function listPerks(): Array<Perk> {
+    return PERKS
+  }
 
   return {
     stardust,
@@ -272,17 +314,19 @@ export const useMetaStore = defineStore('meta', () => {
     clearRunHistory,
     favoriteWeapons,
     recordWeaponPick,
-    unlockedNodeIdSet,
-    availableNodeIdSet,
     paragonLevel,
     prestigeLevel,
+    refundFraction,
     isParagonComplete,
-    nodeCostOf,
     totalSpentOnTree,
-    canUnlockNode,
-    unlockNode,
+    perkRank,
+    nextPerkCost,
+    canBuyPerk,
+    buyPerk,
+    sellPerk,
     resetTree,
-    prestige,
+    maxAllPerks,
+    listPerks,
     resetAllProgress,
     exportSave,
     importSave,

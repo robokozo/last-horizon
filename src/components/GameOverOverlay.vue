@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 import { SOURCE_LABELS } from '@/game/data/sourceLabels'
 import { UPGRADE_DEFINITIONS } from '@/game/data/upgrades'
 import type { RunResult } from '@/game/types'
-import { ROOT_NODE_ID, SKILL_NODES_BY_ID } from '@/skills/skillTree'
+import { PERKS_BY_ID } from '@/skills/skillTree'
 
 const { result, unlockedNodeIds, prestigeLevel } = defineProps<{
   result: RunResult
@@ -67,33 +67,35 @@ const cardLines = computed(() => {
 })
 
 /**
- * Compact paragon readout: the impactful nodes (keystones + notables) are named,
- * while the many small minors collapse to a per-branch tally — far less text than
- * listing every node, and it still says where the build invested.
+ * Compact perk readout: the impactful perks (epic + legendary) are named with
+ * their ranks, while the many small common/rare perks collapse to a per-rarity
+ * tally — far less text than listing every rank, and it still says where the
+ * build invested.
  */
 const paragonSummary = computed(() => {
-  const keyNodes: Array<string> = []
-  const minorsByBranch: Record<string, number> = {}
-  let count = 0
+  const ranksById = new Map<string, number>()
   for (const id of unlockedNodeIds) {
-    if (id === ROOT_NODE_ID) {
+    ranksById.set(id, (ranksById.get(id) ?? 0) + 1)
+  }
+  const keyNodes: Array<string> = []
+  const minorsByRarity: Record<string, number> = {}
+  let count = 0
+  for (const [id, ranks] of ranksById) {
+    const perk = PERKS_BY_ID.get(id)
+    if (perk === undefined) {
       continue
     }
-    const node = SKILL_NODES_BY_ID.get(id)
-    if (node === undefined) {
-      continue
-    }
-    count += 1
-    if (node.kind === 'minor') {
-      minorsByBranch[node.branch] = (minorsByBranch[node.branch] ?? 0) + 1
+    count += ranks
+    if (perk.rarity === 'epic' || perk.rarity === 'legendary') {
+      keyNodes.push(`${perk.name} ×${ranks}`)
     } else {
-      keyNodes.push(node.name)
+      minorsByRarity[perk.rarity] = (minorsByRarity[perk.rarity] ?? 0) + ranks
     }
   }
   keyNodes.sort()
-  const minors = Object.entries(minorsByBranch)
+  const minors = Object.entries(minorsByRarity)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([branch, n]) => `${branch} ×${n}`)
+    .map(([rarity, n]) => `${rarity} ×${n}`)
   return { count, keyNodes, minors }
 })
 
@@ -128,7 +130,7 @@ const reportText = computed(() => {
   lines.push('')
 
   const paragon = paragonSummary.value
-  lines.push(`Paragon: ${paragon.count} nodes`)
+  lines.push(`Paragon: ${paragon.count} perk ranks`)
   if (paragon.keyNodes.length > 0) {
     lines.push(`  Key: ${paragon.keyNodes.join(', ')}`)
   }

@@ -113,7 +113,7 @@ function buildLoadoutStats({
   cardStacks: Record<string, number>
   cannonCount: number
 }): RunStats {
-  let stats = buildStartingStats({ unlockedNodeIds: ['core'] })
+  let stats = buildStartingStats({ unlockedNodeIds: [] })
   for (const [cardId, stacks] of Object.entries(cardStacks)) {
     const definition = UPGRADE_DEFINITIONS.find((candidate) => candidate.id === cardId)
     if (definition === undefined) {

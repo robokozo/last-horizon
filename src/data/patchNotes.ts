@@ -21,6 +21,29 @@ export interface PatchEntry {
  */
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
+    date: '2026-06-23',
+    title: 'The Paragon Shop',
+    blurb: 'The paragon board is gone — meet the perk shop.',
+    notes: [
+      {
+        kind: 'new',
+        text: 'Paragon is reborn as a perk shop. The sprawling skill board is replaced by a clean list of perks grouped by rarity — Common, Rare, Epic, Legendary. Buy ranks of whatever you want with + and sell them back with −; each rank of a perk costs a little more than the last. No more pathing or unlocking adjacent nodes — just buy what your build wants.',
+      },
+      {
+        kind: 'new',
+        text: 'Legendary perks are the headliners: Aegis (the planetary shield), Surge (the capacitor — kills charge a battery that surges every weapon), and Veteran (your weapon damage now climbs with every level you reach in a run). Higher ranks deepen each one.',
+      },
+      {
+        kind: 'new',
+        text: 'Prestige is now a perk you buy. It costs a fortune and resets all your purchased perks, but permanently staffs another gun emplacement — take it whenever you decide the extra cannon is worth wiping your build for. No more buying out the entire board first.',
+      },
+      {
+        kind: 'balance',
+        text: 'Selling a perk refunds only part of what you paid (50% to start), so every purchase is a real choice. The new Reclamation perk raises that refund rate up to a 90% cap. Because progression changed shape, existing paragon progress has been refunded as stardust so you can re-spend it in the new shop.',
+      },
+    ],
+  },
+  {
     date: '2026-06-21',
     title: 'Event Horizon',
     blurb: 'A new weapon that gathers the swarm into a neat little ball for you.',
