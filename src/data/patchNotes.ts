@@ -21,6 +21,17 @@ export interface PatchEntry {
  */
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
+    date: '2026-06-24',
+    title: 'On Target',
+    blurb: 'Training Range targets stay in range on mobile.',
+    notes: [
+      {
+        kind: 'fix',
+        text: 'Fixed Training Range dummies spawning out of gun range on a tall phone screen — the target rows now sit just in front of the cannons whatever the screen shape, so your guns can actually reach them.',
+      },
+    ],
+  },
+  {
     date: '2026-06-23',
     title: 'Range Rover',
     blurb: 'Mobile-friendly Training Range and a few visual touch-ups.',
@@ -28,10 +39,6 @@ export const PATCH_NOTES: Array<PatchEntry> = [
       {
         kind: 'fix',
         text: 'The Training Range now works on phones: the control panel collapses into a slide-in drawer with a ☰ button, so the range fills the screen instead of being crowded out by the settings.',
-      },
-      {
-        kind: 'fix',
-        text: 'Fixed Training Range dummies spawning out of gun range on a tall phone screen — the target rows now sit just in front of the cannons whatever the screen shape.',
       },
       {
         kind: 'fix',
