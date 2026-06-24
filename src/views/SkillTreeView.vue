@@ -28,12 +28,22 @@ const RARITY_TEXT: Record<PerkRarity, string> = {
   legendary: 'text-orange-300',
 }
 
-const perksByRarity = computed(() =>
-  RARITY_ORDER.map((rarity) => ({
-    rarity,
-    perks: PERKS.filter((perk) => perk.rarity === rarity),
-  })),
-)
+/** Fisher–Yates shuffle, so the shop doesn't always list perks in the same order */
+function shuffled<T>(items: Array<T>): Array<T> {
+  const result = [...items]
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1))
+    ;[result[index], result[swap]] = [result[swap], result[index]]
+  }
+  return result
+}
+
+// shuffled once when the screen opens — order stays put while you buy and sell,
+// but is freshly random each visit (within each rarity band)
+const perksByRarity = RARITY_ORDER.map((rarity) => ({
+  rarity,
+  perks: shuffled(PERKS.filter((perk) => perk.rarity === rarity)),
+}))
 
 const isConfirmingReset = ref(false)
 const confirmingPrestigeId = ref<string | null>(null)
