@@ -879,19 +879,27 @@ export class GameScene extends Phaser.Scene {
       return
     }
 
+    // rows sit a fixed distance ABOVE the cannon line (not an absolute y), so they
+    // stay inside gun range whatever the arena shape — on a tall portrait phone the
+    // cannons are far down, and absolute-from-top placement put these out of reach.
+    // distances match the old desktop layout (cannonY 664 → y 250/400/550), capped
+    // to range so a smaller range still keeps them reachable.
     const rows = [
-      { y: 250, count: 6 },
-      { y: 400, count: 6 },
-      { y: 550, count: 4 },
+      { distance: 414, count: 6 },
+      { distance: 264, count: 6 },
+      { distance: 114, count: 4 },
     ]
+    // 190px spacing on the 1280-wide desktop arena, scaled so rows fit a phone too
+    const spacing = this.arenaWidth * 0.148 * layout.spread
     let dummyIndex = 0
     for (const row of rows) {
+      const y = this.cannonY - Math.min(row.distance, this.stats.range * 0.95)
       for (let index = 0; index < row.count; index += 1) {
-        const offsetFromCenter = (index - (row.count - 1) / 2) * 190 * layout.spread
+        const offsetFromCenter = (index - (row.count - 1) / 2) * spacing
         dummyIndex += 1
         this.spawnDummy({
-          x: this.arenaWidth / 2 + offsetFromCenter,
-          y: row.y,
+          x: Phaser.Math.Clamp(this.arenaWidth / 2 + offsetFromCenter, 30, this.arenaWidth - 30),
+          y,
           radius: ENEMY_DEFINITIONS.dummy.radius,
           scale: 1,
           patrolAmplitude: layout.isMoving === true ? 80 * layout.spread : 0,

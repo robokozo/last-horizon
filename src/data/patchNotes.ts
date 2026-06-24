@@ -31,6 +31,10 @@ export const PATCH_NOTES: Array<PatchEntry> = [
       },
       {
         kind: 'fix',
+        text: 'Fixed Training Range dummies spawning out of gun range on a tall phone screen — the target rows now sit just in front of the cannons whatever the screen shape.',
+      },
+      {
+        kind: 'fix',
         text: 'The Aegis shield now glows over every cannon, not just the first — each one charges and flashes with the block.',
       },
       {
