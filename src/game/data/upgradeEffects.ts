@@ -9,8 +9,10 @@ import {
   DEVOURER,
   FLAK,
   FLAME,
+  FROZEN_ORB,
   GRAVITON,
   LANCE,
+  LASER,
   LOCKDOWN,
   MINES,
   NOVA,
@@ -36,6 +38,8 @@ const DAMAGE_RAMP: Record<string, { base: number; perLevel: number }> = {
   rocket: { base: ROCKET.baseDamageMult, perLevel: ROCKET.damageMultPerLevel },
   chain: { base: CHAIN.baseDamageMult, perLevel: CHAIN.damageMultPerLevel },
   railgun: { base: RAILGUN.baseDamageMult, perLevel: RAILGUN.damageMultPerLevel },
+  laser: { base: LASER.baseDamageMult, perLevel: LASER.damageMultPerLevel },
+  'frozen-orb': { base: FROZEN_ORB.baseDamageMult, perLevel: FROZEN_ORB.damageMultPerLevel },
   airstrike: { base: AIRSTRIKE.baseDamageMult, perLevel: AIRSTRIKE.damageMultPerLevel },
   bfg: { base: BFG.baseDamageMult, perLevel: BFG.damageMultPerLevel },
   lance: { base: LANCE.baseDamageMult, perLevel: LANCE.damageMultPerLevel },
@@ -67,6 +71,12 @@ const INTERVAL_RAMP: Record<string, { base: number; step: number; min: number }>
     base: RAILGUN.baseIntervalMs,
     step: RAILGUN.intervalStepMs,
     min: RAILGUN.minIntervalMs,
+  },
+  laser: { base: LASER.baseIntervalMs, step: LASER.intervalStepMs, min: LASER.minIntervalMs },
+  'frozen-orb': {
+    base: FROZEN_ORB.baseIntervalMs,
+    step: FROZEN_ORB.intervalStepMs,
+    min: FROZEN_ORB.minIntervalMs,
   },
   airstrike: {
     base: AIRSTRIKE.baseIntervalMs,
@@ -249,6 +259,26 @@ const EFFECT_BUILDERS: Record<string, EffectBuilder> = {
   railgun: ({ stats, level }) => [
     { label: 'Beam damage', value: hit('railgun', level, stats), unit: 'dmg' },
     { label: 'Cooldown', value: reload('railgun', level, stats), unit: 'sec' },
+  ],
+  laser: ({ stats, level }) => [
+    { label: 'Bolt damage', value: hit('laser', level, stats), unit: 'dmg' },
+    { label: 'Blasts per burst', value: LASER.blastsBase + (level - 1), unit: 'int' },
+    { label: 'Multi-hit bonus', value: LASER.multiHitBonus * 100, unit: 'percent' },
+    { label: 'Cooldown', value: reload('laser', level, stats), unit: 'sec' },
+  ],
+  'frozen-orb': ({ stats, level }) => [
+    { label: 'Icicle damage', value: hit('frozen-orb', level, stats), unit: 'dmg' },
+    {
+      label: 'Icicles / spray',
+      value: ramp(FROZEN_ORB.iceCountBase, FROZEN_ORB.iceCountPerLevel, level),
+      unit: 'int',
+    },
+    {
+      label: 'Chill',
+      value: ramp(FROZEN_ORB.chillMsBase, FROZEN_ORB.chillMsPerLevel, level),
+      unit: 'sec',
+    },
+    { label: 'Cooldown', value: reload('frozen-orb', level, stats), unit: 'sec' },
   ],
   lance: ({ stats, level }) => [
     { label: 'Sear damage', value: hit('lance', level, stats), unit: 'dmg' },

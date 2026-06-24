@@ -6,6 +6,8 @@ export const SOURCE_LABELS: Record<string, string> = {
   chain: 'Tesla Arc',
   nova: 'Nova Pulse',
   railgun: 'Rail Gun',
+  laser: 'Laser Blaster',
+  'frozen-orb': 'Frozen Orb',
   lance: 'Thermal Lance',
   flame: 'Flamethrower',
   devourer: 'Devourer Swarm',

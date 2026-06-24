@@ -73,6 +73,26 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, railgunLevel: stats.railgunLevel + 1 }),
   },
   {
+    id: 'laser',
+    name: 'Laser Blaster',
+    description:
+      'Fires a quick burst of laser bolts with a little spread; the more bolts that strike the same invader, the more bonus damage they pile on (stacks: an extra bolt, faster, stronger)',
+    rarity: 'rare',
+    category: 'weapon',
+    maxStacks: BASE_MAX_STACKS,
+    apply: (stats) => ({ ...stats, laserLevel: stats.laserLevel + 1 }),
+  },
+  {
+    id: 'frozen-orb',
+    name: 'Frozen Orb',
+    description:
+      'Launches a slow spinning orb that radiates short-lived icicles in every direction as it drifts, chilling whatever they pierce (stacks: more icicles, faster, stronger)',
+    rarity: 'epic',
+    category: 'weapon',
+    maxStacks: BASE_MAX_STACKS,
+    apply: (stats) => ({ ...stats, frozenOrbLevel: stats.frozenOrbLevel + 1 }),
+  },
+  {
     id: 'airstrike',
     name: 'Strafing Run',
     description:

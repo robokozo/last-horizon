@@ -155,6 +155,8 @@ export const BASE_RUN_STATS: RunStats = {
   cloudLevel: 0,
   lockdownLevel: 0,
   railgunLevel: 0,
+  laserLevel: 0,
+  frozenOrbLevel: 0,
   airstrikeLevel: 0,
   bfgLevel: 0,
   lanceLevel: 0,
@@ -498,6 +500,46 @@ export const LANCE = {
   /** sweep speed — fast enough to cross the full ~166° sky arc in ~1.3s */
   sweepSpeedDegPerSec: 130,
   beamHalfWidthPx: 7,
+} as const
+
+/** Laser Blaster: a quick burst of laser bolts that reward piling onto one target */
+export const LASER = {
+  baseIntervalMs: 1_700,
+  intervalStepMs: 90,
+  minIntervalMs: 1_100,
+  /** per-bolt damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
+  baseDamageMult: 1.2,
+  damageMultPerLevel: 0.35,
+  speed: 760,
+  /** bolts fired per burst = blastsBase + (level − 1) */
+  blastsBase: 3,
+  /** random angular jitter on each bolt, degrees, so a burst isn't a perfect line */
+  spreadDeg: 6,
+  /** ms between the bolts of one burst */
+  burstDelayMs: 75,
+  /** each extra bolt that lands on the same invader adds this fraction of bolt damage */
+  multiHitBonus: 0.5,
+} as const
+
+/** Frozen Orb: a slow spinning orb that radiates short-lived icicles as it drifts */
+export const FROZEN_ORB = {
+  baseIntervalMs: 5_200,
+  intervalStepMs: 350,
+  minIntervalMs: 3_400,
+  /** icicle per-hit damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
+  baseDamageMult: 0.7,
+  damageMultPerLevel: 0.2,
+  orbSpeed: 130,
+  lifespanMs: 2_400,
+  spinDegPerSec: 240,
+  /** how often the orb sprays a ring of icicles */
+  emitIntervalMs: 95,
+  iceCountBase: 4,
+  iceCountPerLevel: 1,
+  iceSpeed: 380,
+  iceRangePx: 190,
+  chillMsBase: 700,
+  chillMsPerLevel: 150,
 } as const
 
 export const BOSS = {

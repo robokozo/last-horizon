@@ -22,6 +22,21 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Cold Front, Hot Streak',
+    blurb: 'Two new weapons join the arsenal.',
+    notes: [
+      {
+        kind: 'new',
+        text: 'New weapon — Frozen Orb: launches a slow spinning orb that drifts across the sky radiating short-lived icicles in every direction, chilling whatever they pierce. Ranking it up sprays more icicles, faster and harder, with a longer chill.',
+      },
+      {
+        kind: 'new',
+        text: 'New weapon — Laser Blaster: fires a quick burst of laser bolts with a little spread, and the more bolts that land on the same invader the more bonus damage they pile on. Each rank adds another bolt to the burst (plus faster, stronger).',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Sky Sweeper',
     blurb: 'The Thermal Lance reborn as a sky-wide sweep.',
     notes: [

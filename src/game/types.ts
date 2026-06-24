@@ -54,6 +54,8 @@ export interface RunStats {
   cloudLevel: number
   lockdownLevel: number
   railgunLevel: number
+  laserLevel: number
+  frozenOrbLevel: number
   airstrikeLevel: number
   bfgLevel: number
   lanceLevel: number

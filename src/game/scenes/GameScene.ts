@@ -14,12 +14,14 @@ import {
   ENEMY_AURAS,
   FLAK,
   FLAME,
+  FROZEN_ORB,
   BOSS,
   CLUSTER_BOMBS,
   FILLER_REWARDS,
   GRAVITON,
   GROUND,
   LANCE,
+  LASER,
   LOCKDOWN,
   MINES,
   NOVA,
@@ -264,6 +266,21 @@ interface BulletUnit {
   traveledPx: number
   maxTravelPx: number
   hitEnemies: Set<EnemyUnit>
+  /** laser blaster: hit counts shared across one burst's bolts, for the multi-hit bonus */
+  burstHits?: Map<EnemyUnit, number>
+  isDead: boolean
+}
+
+/** a slow spinning orb that radiates short-lived icicles as it drifts across the sky */
+interface FrozenOrbUnit {
+  image: Phaser.GameObjects.Image
+  velocityX: number
+  velocityY: number
+  emitAccumulatorMs: number
+  remainingMs: number
+  iceDamage: number
+  iceCount: number
+  spinRad: number
   isDead: boolean
 }
 
@@ -461,6 +478,7 @@ export class GameScene extends Phaser.Scene {
   private bullets: Array<BulletUnit> = []
   private flakShells: Array<FlakShellUnit> = []
   private rockets: Array<RocketUnit> = []
+  private frozenOrbs: Array<FrozenOrbUnit> = []
   private cannons: Array<CannonUnit> = []
   private buildings: Array<BuildingUnit> = []
   private cloudImages: Array<CloudUnit> = []
@@ -772,6 +790,10 @@ export class GameScene extends Phaser.Scene {
       rocket.image.destroy()
     }
     this.rockets = []
+    for (const orb of this.frozenOrbs) {
+      orb.image.destroy()
+    }
+    this.frozenOrbs = []
     for (const plane of this.planes) {
       plane.image.destroy()
     }
@@ -1090,6 +1112,7 @@ export class GameScene extends Phaser.Scene {
     this.updateDevourerSwarms({ delta })
     this.moveStasisMissiles({ delta })
     this.moveRockets({ delta })
+    this.moveFrozenOrbs({ delta })
     this.updateAirstrike({ delta })
     this.updateParachutes({ delta })
     this.updateBfg({ delta })
@@ -3054,6 +3077,12 @@ export class GameScene extends Phaser.Scene {
     if (this.stats.railgunLevel > 0) {
       weaponIds.push('railgun')
     }
+    if (this.stats.laserLevel > 0) {
+      weaponIds.push('laser')
+    }
+    if (this.stats.frozenOrbLevel > 0) {
+      weaponIds.push('frozen-orb')
+    }
     if (this.stats.lanceLevel > 0) {
       weaponIds.push('lance')
     }
@@ -3096,6 +3125,10 @@ export class GameScene extends Phaser.Scene {
         return this.stats.lockdownLevel
       case 'railgun':
         return this.stats.railgunLevel
+      case 'laser':
+        return this.stats.laserLevel
+      case 'frozen-orb':
+        return this.stats.frozenOrbLevel
       case 'airstrike':
         return this.stats.airstrikeLevel
       case 'bfg':
@@ -3175,10 +3208,197 @@ export class GameScene extends Phaser.Scene {
     if (weaponId === 'railgun') {
       return this.fireRailgun({ cannon })
     }
+    if (weaponId === 'laser') {
+      return this.fireLaserBurst({ cannon })
+    }
+    if (weaponId === 'frozen-orb') {
+      return this.fireFrozenOrb({ cannon })
+    }
     if (weaponId === 'lance') {
       return this.fireLance({ cannon })
     }
     return false
+  }
+
+  // ── laser blaster ──────────────────────────────────────────────────
+
+  private nearestEnemyInRange({
+    originX,
+    originY,
+  }: {
+    originX: number
+    originY: number
+  }): EnemyUnit | null {
+    const rangeSq = this.stats.range ** 2
+    let nearest: EnemyUnit | null = null
+    let nearestSq = Number.POSITIVE_INFINITY
+    for (const enemy of this.enemies) {
+      if (enemy.isDead === true) {
+        continue
+      }
+      const distanceSq = (enemy.image.x - originX) ** 2 + (enemy.image.y - originY) ** 2
+      if (distanceSq <= rangeSq && distanceSq < nearestSq) {
+        nearestSq = distanceSq
+        nearest = enemy
+      }
+    }
+    return nearest
+  }
+
+  /** fire a quick burst of laser bolts; bolts that pile onto one invader hit harder */
+  private fireLaserBurst({ cannon }: { cannon: CannonUnit }): boolean {
+    const muzzleY = cannon.y - 8
+    if (this.nearestEnemyInRange({ originX: cannon.x, originY: muzzleY }) === null) {
+      return false
+    }
+    const blasts = LASER.blastsBase + (this.stats.laserLevel - 1)
+    const boltDamage =
+      this.stats.damage *
+      weaponDamageMultiplier({ weaponId: 'laser', level: this.stats.laserLevel })
+    // every bolt of this burst shares one hit-count map, so repeats on a target stack
+    const burstHits = new Map<EnemyUnit, number>()
+    for (let index = 0; index < blasts; index += 1) {
+      this.time.delayedCall(index * LASER.burstDelayMs, () => {
+        if (this.isRunOver === true) {
+          return
+        }
+        this.fireLaserBolt({ cannon, boltDamage, burstHits })
+      })
+    }
+    return true
+  }
+
+  private fireLaserBolt({
+    cannon,
+    boltDamage,
+    burstHits,
+  }: {
+    cannon: CannonUnit
+    boltDamage: number
+    burstHits: Map<EnemyUnit, number>
+  }): void {
+    const muzzleY = cannon.y - 8
+    const target = this.nearestEnemyInRange({ originX: cannon.x, originY: muzzleY })
+    if (target === null) {
+      return
+    }
+    // slight jitter so a burst sprays a tight fan instead of a perfect line
+    const baseAngle = Math.atan2(target.image.y - muzzleY, target.image.x - cannon.x)
+    const angle = baseAngle + Phaser.Math.DegToRad((Math.random() * 2 - 1) * LASER.spreadDeg)
+    const image = this.add
+      .image(
+        cannon.x + Math.cos(angle) * BARREL_LENGTH,
+        muzzleY + Math.sin(angle) * BARREL_LENGTH,
+        'laser-bolt',
+      )
+      .setRotation(angle)
+      .setDepth(DEPTHS.bullets)
+    this.bullets.push({
+      image,
+      source: 'laser',
+      velocityX: Math.cos(angle) * LASER.speed,
+      velocityY: Math.sin(angle) * LASER.speed,
+      damage: boltDamage,
+      isCrit: false,
+      pierceLeft: 0,
+      traveledPx: 0,
+      maxTravelPx: this.stats.range,
+      hitEnemies: new Set(),
+      burstHits,
+      isDead: false,
+    })
+  }
+
+  // ── frozen orb ─────────────────────────────────────────────────────
+
+  /** launch a slow spinning orb toward the densest cluster; it sprays icicles as it drifts */
+  private fireFrozenOrb({ cannon }: { cannon: CannonUnit }): boolean {
+    const originX = cannon.x
+    const originY = cannon.y - 8
+    const rangeSq = this.stats.range ** 2
+    const inRange = this.enemies.filter(
+      (enemy) =>
+        enemy.isDead === false &&
+        (enemy.image.x - originX) ** 2 + (enemy.image.y - originY) ** 2 <= rangeSq,
+    )
+    if (inRange.length === 0) {
+      return false
+    }
+    const target = this.findClusterTarget({ pool: inRange }) ?? inRange[0]
+    const level = this.stats.frozenOrbLevel
+    const angle = Math.atan2(target.image.y - originY, target.image.x - originX)
+    const image = this.add
+      .image(
+        originX + Math.cos(angle) * BARREL_LENGTH,
+        originY + Math.sin(angle) * BARREL_LENGTH,
+        'frozen-orb',
+      )
+      .setScale(1 + 0.1 * (level - 1))
+      .setDepth(DEPTHS.bullets)
+    this.frozenOrbs.push({
+      image,
+      velocityX: Math.cos(angle) * FROZEN_ORB.orbSpeed,
+      velocityY: Math.sin(angle) * FROZEN_ORB.orbSpeed,
+      // primed to spray on its first frame
+      emitAccumulatorMs: FROZEN_ORB.emitIntervalMs,
+      remainingMs: FROZEN_ORB.lifespanMs,
+      iceDamage: this.stats.damage * weaponDamageMultiplier({ weaponId: 'frozen-orb', level }),
+      iceCount: FROZEN_ORB.iceCountBase + FROZEN_ORB.iceCountPerLevel * (level - 1),
+      spinRad: 0,
+      isDead: false,
+    })
+    return true
+  }
+
+  private moveFrozenOrbs({ delta }: { delta: number }): void {
+    const seconds = delta / 1_000
+    for (const orb of this.frozenOrbs) {
+      if (orb.isDead === true) {
+        continue
+      }
+      orb.image.x += orb.velocityX * seconds
+      orb.image.y += orb.velocityY * seconds
+      orb.spinRad += Phaser.Math.DegToRad(FROZEN_ORB.spinDegPerSec) * seconds
+      orb.image.setRotation(orb.spinRad)
+      orb.remainingMs -= delta
+      orb.emitAccumulatorMs += delta
+      if (orb.emitAccumulatorMs >= FROZEN_ORB.emitIntervalMs) {
+        orb.emitAccumulatorMs = 0
+        this.emitIcicles({ orb })
+      }
+      const isOutOfBounds =
+        orb.image.x < -BULLET_CULL_MARGIN ||
+        orb.image.x > this.arenaWidth + BULLET_CULL_MARGIN ||
+        orb.image.y < -BULLET_CULL_MARGIN ||
+        orb.image.y > this.groundY
+      if (orb.remainingMs <= 0 || isOutOfBounds === true) {
+        orb.isDead = true
+      }
+    }
+  }
+
+  /** spray a ring of short-lived icicles outward, rotated by the orb's spin for a spiral */
+  private emitIcicles({ orb }: { orb: FrozenOrbUnit }): void {
+    for (let index = 0; index < orb.iceCount; index += 1) {
+      const angle = orb.spinRad + (Math.PI * 2 * index) / orb.iceCount
+      const image = this.add
+        .image(orb.image.x, orb.image.y, 'icicle')
+        .setRotation(angle)
+        .setDepth(DEPTHS.bullets)
+      this.bullets.push({
+        image,
+        source: 'frozen-orb',
+        velocityX: Math.cos(angle) * FROZEN_ORB.iceSpeed,
+        velocityY: Math.sin(angle) * FROZEN_ORB.iceSpeed,
+        damage: orb.iceDamage,
+        isCrit: false,
+        pierceLeft: 0,
+        traveledPx: 0,
+        maxTravelPx: FROZEN_ORB.iceRangePx,
+        hitEnemies: new Set(),
+        isDead: false,
+      })
+    }
   }
 
   // ── lock down ──────────────────────────────────────────────────────
@@ -5534,6 +5754,27 @@ export class GameScene extends Phaser.Scene {
               SYNERGIES.cryoshells.chillMsPerLevel * (this.stats.cryoLevel - 1),
           })
         }
+        // frozen orb icicles chill whatever they pierce
+        if (bullet.source === 'frozen-orb') {
+          this.applyChill({
+            enemy,
+            durationMs:
+              FROZEN_ORB.chillMsBase +
+              FROZEN_ORB.chillMsPerLevel * Math.max(0, this.stats.frozenOrbLevel - 1),
+          })
+        }
+        // laser blaster: each extra bolt of the burst that lands on this invader hits harder
+        if (bullet.source === 'laser' && bullet.burstHits !== undefined) {
+          const priorHits = bullet.burstHits.get(enemy) ?? 0
+          bullet.burstHits.set(enemy, priorHits + 1)
+          if (priorHits > 0) {
+            this.damageEnemy({
+              enemy,
+              amount: bullet.damage * LASER.multiHitBonus * priorHits,
+              source: 'laser',
+            })
+          }
+        }
         if (bullet.pierceLeft <= 0) {
           bullet.isDead = true
           break
@@ -6217,6 +6458,17 @@ export class GameScene extends Phaser.Scene {
     if (hasDeadRocket === true) {
       this.rockets = this.rockets.filter((rocket) => rocket.isDead === false)
     }
+
+    let hasDeadOrb = false
+    for (const orb of this.frozenOrbs) {
+      if (orb.isDead === true) {
+        orb.image.destroy()
+        hasDeadOrb = true
+      }
+    }
+    if (hasDeadOrb === true) {
+      this.frozenOrbs = this.frozenOrbs.filter((orb) => orb.isDead === false)
+    }
   }
 
   /** optional floating damage numbers — capped so dense fights don't drown in text */
@@ -6761,6 +7013,32 @@ export class GameScene extends Phaser.Scene {
     graphics.lineStyle(2, 0xa5f3fc, 0.7)
     graphics.strokeCircle(6, 6, BULLET.radius + 1)
     graphics.generateTexture('bullet', 12, 12)
+    graphics.clear()
+
+    // laser bolt: a bright red-orange dart pointing +x
+    graphics.fillStyle(0xf87171)
+    graphics.fillRect(0, 3, 18, 4)
+    graphics.fillStyle(0xfee2e2)
+    graphics.fillRect(3, 4, 12, 2)
+    graphics.generateTexture('laser-bolt', 18, 10)
+    graphics.clear()
+
+    // icicle: a pale-blue shard pointing +x
+    graphics.fillStyle(0xbae6fd)
+    graphics.fillTriangle(0, 2, 13, 5, 0, 8)
+    graphics.lineStyle(1, 0xe0f2fe, 0.85)
+    graphics.strokeTriangle(0, 2, 13, 5, 0, 8)
+    graphics.generateTexture('icicle', 14, 10)
+    graphics.clear()
+
+    // frozen orb: a glassy blue sphere with an icy highlight
+    graphics.fillStyle(0x38bdf8, 0.92)
+    graphics.fillCircle(13, 13, 12)
+    graphics.lineStyle(2, 0xe0f2fe, 0.9)
+    graphics.strokeCircle(13, 13, 12)
+    graphics.fillStyle(0xe0f2fe, 0.85)
+    graphics.fillCircle(9, 9, 3.5)
+    graphics.generateTexture('frozen-orb', 26, 26)
     graphics.clear()
 
     // xp gem: green diamond
