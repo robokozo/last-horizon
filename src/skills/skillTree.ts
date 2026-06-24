@@ -316,12 +316,12 @@ export const PERKS: Array<Perk> = [
     id: 'windfall',
     name: 'Windfall',
     description:
-      '+12% chance per rank that a level-up also grants a free random bonus upgrade on top of your pick.',
+      '+4% chance per rank (up to 20%) that a level-up also grants a free random bonus upgrade on top of your pick.',
     icon: '🎁',
     rarity: 'legendary',
     maxRank: 5,
     baseCost: 3_000,
-    effects: [{ stat: 'bonusUpgradeChancePercent', amountPerRank: 12 }],
+    effects: [{ stat: 'bonusUpgradeChancePercent', amountPerRank: 4 }],
   },
   {
     id: 'prestige',

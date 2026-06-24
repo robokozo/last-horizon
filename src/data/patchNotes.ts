@@ -43,7 +43,7 @@ export const PATCH_NOTES: Array<PatchEntry> = [
       },
       {
         kind: 'new',
-        text: 'New Legendary perk — Windfall: every level-up has a chance (up to 60% at max rank) to also drop a free random bonus upgrade on top of the card you pick.',
+        text: 'New Legendary perk — Windfall: every level-up has a chance (up to 20% at max rank) to also drop a free random bonus upgrade on top of the card you pick.',
       },
       {
         kind: 'fix',
