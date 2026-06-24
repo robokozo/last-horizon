@@ -185,24 +185,13 @@ interface LanceTrail {
 
 interface MineUnit {
   image: Phaser.GameObjects.Image
-  /** the balloon holding the mine on station */
+  /** the balloon tethered above the mine */
   balloonImage: Phaser.GameObjects.Image
-  /** the mine's logical altitude — the balloon slowly lifts it toward the ceiling */
+  /** the mine's logical altitude — sits at ground level unless a magnet homes it */
   baseY: number
   /** randomizes the bobbing motion so mines don't sway in lockstep */
   bobPhase: number
   armRemainingMs: number
-  isDead: boolean
-}
-
-/** a mine lobbed from a cannon, arcing under gravity toward its station point */
-interface MineShellUnit {
-  image: Phaser.GameObjects.Image
-  velocityX: number
-  velocityY: number
-  targetX: number
-  targetY: number
-  remainingMs: number
   isDead: boolean
 }
 
@@ -392,12 +381,10 @@ const MAX_FRAME_DELTA_MS = 100
 const DUMMY_PATROL_PERIOD_S = 5
 /** killable training dummies pop back up after this long */
 const DUMMY_RESPAWN_MS = 1_500
-/** gravity pulling lobbed mine shells back down, px/s² */
-const MINE_SHELL_GRAVITY = 700
 /** how far above its mine the balloon floats */
 const MINE_BALLOON_OFFSET_Y = 24
-/** balloons slowly lift their mines, then hold just under the top of the sky */
-const MINE_RISE_SPEED_PX_PER_SEC = 12
+/** how far above the ground a deployed mine sits */
+const MINE_GROUND_OFFSET = 14
 const MINE_CEILING_Y = 80
 
 const COOLDOWN_BAR_WIDTH = 30
@@ -553,7 +540,6 @@ export class GameScene extends Phaser.Scene {
   private lanceTrails: Array<LanceTrail> = []
   private sweepGraphics!: Phaser.GameObjects.Graphics
   private mines: Array<MineUnit> = []
-  private mineShells: Array<MineShellUnit> = []
   private bossBolts: Array<BossBoltUnit> = []
   private naniteShots: Array<NaniteShotUnit> = []
   private swarms: Array<SwarmUnit> = []
@@ -811,10 +797,6 @@ export class GameScene extends Phaser.Scene {
       mine.balloonImage.destroy()
     }
     this.mines = []
-    for (const shell of this.mineShells) {
-      shell.image.destroy()
-    }
-    this.mineShells = []
     for (const shell of this.flakShells) {
       shell.image.destroy()
     }
@@ -2900,13 +2882,7 @@ export class GameScene extends Phaser.Scene {
         if (this.mines.length >= this.maxActiveMines()) {
           break
         }
-        this.deployMine({
-          x: blastX + (Math.random() * 2 - 1) * rocket.blastRadius,
-          y: Math.min(
-            this.groundY - 80,
-            blastY + (Math.random() * 2 - 1) * rocket.blastRadius * 0.6,
-          ),
-        })
+        this.deployMine({ x: blastX + (Math.random() * 2 - 1) * rocket.blastRadius })
       }
     }
   }
@@ -4597,7 +4573,7 @@ export class GameScene extends Phaser.Scene {
 
   /** one cannon's mine volley — runs on the per-cannon weapon engine */
   private fireMineSalvo({ cannon }: { cannon: CannonUnit }): boolean {
-    if (this.mines.length + this.mineShells.length >= this.maxActiveMines()) {
+    if (this.mines.length >= this.maxActiveMines()) {
       return false
     }
     const dropCount = Math.floor(
@@ -4605,39 +4581,24 @@ export class GameScene extends Phaser.Scene {
         MINES.minesPerDropPerLevel * (this.stats.mineLevel - 1) +
         SYNERGIES.fabricators.extraMinesPerDropPerLevel * this.stats.fabricatorLevel,
     )
+    soundEngine.play({ name: 'launch' })
     for (let index = 0; index < dropCount; index += 1) {
-      if (this.mines.length + this.mineShells.length >= this.maxActiveMines()) {
+      if (this.mines.length >= this.maxActiveMines()) {
         break
       }
-      this.launchMineShell({
-        cannon,
-        x: 120 + Math.random() * (this.arenaWidth - 240),
-        y: 230 + Math.random() * (this.groundY - 360),
-      })
+      // deploy on the ground right beside the firing gun — no lobbing, no rising
+      const x = Phaser.Math.Clamp(
+        cannon.x + (Math.random() * 2 - 1) * MINES.deploySpreadPx,
+        30,
+        this.arenaWidth - 30,
+      )
+      this.deployMine({ x })
     }
     return true
   }
 
   private updateMines({ delta }: { delta: number }): void {
-    // shells arc under gravity, then pop a balloon mine at their station point
     const seconds = delta / 1_000
-    for (const shell of this.mineShells) {
-      if (shell.isDead === true) {
-        continue
-      }
-      shell.remainingMs -= delta
-      if (shell.remainingMs <= 0) {
-        shell.isDead = true
-        shell.image.destroy()
-        this.deployMine({ x: shell.targetX, y: shell.targetY })
-        continue
-      }
-      shell.image.x += shell.velocityX * seconds
-      shell.image.y += shell.velocityY * seconds
-      shell.velocityY += MINE_SHELL_GRAVITY * seconds
-      shell.image.rotation += 4 * seconds
-    }
-    this.mineShells = this.mineShells.filter((shell) => shell.isDead === false)
 
     // magnetic mines synergy: an armed mine is drawn to the nearest invader and
     // homes in on it, chasing it down rather than dragging the swarm to the mine
@@ -4654,9 +4615,8 @@ export class GameScene extends Phaser.Scene {
       if (mine.isDead === true) {
         continue
       }
-      // an armed magnetic mine homes toward the nearest invader; the homing pull
-      // overrides the balloon's passive lift while a target is in range
-      let isHoming = false
+      // an armed magnetic mine homes toward the nearest invader, chasing it down
+      // (otherwise the mine just sits on the ground waiting for something to wander in)
       if (magnetRadius > 0 && mine.armRemainingMs <= 0) {
         const [target] = this.findNearestEnemiesInRange({
           originX: mine.image.x,
@@ -4665,7 +4625,6 @@ export class GameScene extends Phaser.Scene {
           range: magnetRadius,
         })
         if (target !== undefined) {
-          isHoming = true
           const towardX = target.image.x - mine.image.x
           const towardY = target.image.y - mine.baseY
           const distance = Math.hypot(towardX, towardY)
@@ -4675,10 +4634,6 @@ export class GameScene extends Phaser.Scene {
             mine.baseY += (towardY / distance) * travel
           }
         }
-      }
-      // the balloon slowly lifts an idle mine, holding it just under the top of the sky
-      if (isHoming === false && mine.baseY > MINE_CEILING_Y) {
-        mine.baseY = Math.max(MINE_CEILING_Y, mine.baseY - MINE_RISE_SPEED_PX_PER_SEC * seconds)
       }
       const bobOffsetY = Math.sin((this.elapsedMs / 1_000) * 1.6 + mine.bobPhase) * 3
       mine.image.y = mine.baseY + bobOffsetY
@@ -4732,31 +4687,10 @@ export class GameScene extends Phaser.Scene {
     )
   }
 
-  /** lob a mine from the firing cannon on a parabolic arc to its station point */
-  private launchMineShell({ cannon, x, y }: { cannon: CannonUnit; x: number; y: number }): void {
-    const originX = cannon.x
-    const originY = cannon.y - 6
-    const flightSeconds = 0.8 + Math.random() * 0.4
-    const velocityX = (x - originX) / flightSeconds
-    // solve the parabola so the shell lands exactly on target after flightSeconds
-    const velocityY = (y - originY) / flightSeconds - 0.5 * MINE_SHELL_GRAVITY * flightSeconds
-    cannon.barrelImage.setRotation(Math.atan2(velocityY, velocityX))
-    soundEngine.play({ name: 'launch' })
-    const image = this.add.image(originX, originY, 'mine').setScale(0.7).setDepth(DEPTHS.bullets)
-    this.mineShells.push({
-      image,
-      velocityX,
-      velocityY,
-      targetX: x,
-      targetY: y,
-      remainingMs: flightSeconds * 1_000,
-      isDead: false,
-    })
-  }
-
-  private deployMine({ x: atX, y: atY }: { x?: number; y?: number } = {}): void {
+  /** plant a balloon mine on the ground at the given x (always at ground level) */
+  private deployMine({ x: atX }: { x?: number } = {}): void {
     const x = atX ?? 120 + Math.random() * (this.arenaWidth - 240)
-    const y = atY ?? 230 + Math.random() * (this.groundY - 360)
+    const y = this.groundY - MINE_GROUND_OFFSET
     const balloonImage = this.add
       .image(x, y - MINE_BALLOON_OFFSET_Y, 'balloon')
       .setScale(0)
@@ -4768,7 +4702,7 @@ export class GameScene extends Phaser.Scene {
       duration: 250,
       ease: 'Back.easeOut',
     })
-    // blinking arming light (bobbing and rising are simulated in updateMines)
+    // blinking arming light (bobbing is simulated in updateMines)
     this.tweens.add({
       targets: image,
       alpha: 0.55,

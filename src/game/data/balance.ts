@@ -426,6 +426,8 @@ export const MINES = {
   minesPerDropPerLevel: 0.5,
   /** active-mine ceiling scales with deployed cannons */
   maxActivePerCannon: 6,
+  /** how far to either side of the firing gun a mine can be planted */
+  deploySpreadPx: 80,
   armDelayMs: 500,
   proximityPx: 30,
   blastRadius: 85,
