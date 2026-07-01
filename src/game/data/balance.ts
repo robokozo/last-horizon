@@ -655,7 +655,9 @@ export const CLOUD = {
   slowFactorMin: 0.4,
   /** clouds added per stack beyond the first */
   cloudsPerStack: 2,
-  maxClouds: 12,
+  /** each gun beyond the first generates this many more clouds — cover scales with the battery */
+  cloudsPerGun: 3,
+  maxClouds: 40,
   activeAlpha: 0.26,
   /** every cloud grows by this fraction per rank past the first — bigger banks cover more sky */
   scalePerLevel: 0.12,
@@ -679,6 +681,8 @@ export const GRAVITON = {
   /** how fast invaders are dragged toward the center (px/sec) */
   pullSpeedBase: 75,
   pullSpeedPerLevel: 18,
+  /** the well is a slow projectile fired from a gun — this is how fast it drifts (px/sec) */
+  projectileSpeedPxPerSec: 95,
 } as const
 
 /** generic consolation cards offered when the real card pool runs dry */

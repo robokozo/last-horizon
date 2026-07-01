@@ -22,6 +22,20 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Wells & Weather',
+    notes: [
+      {
+        kind: 'fix',
+        text: 'The Graviton Well now fires from a gun as a slow-drifting projectile that sweeps its pull across the field, instead of just popping into existence over the swarm.',
+      },
+      {
+        kind: 'balance',
+        text: 'Cloud Cover now generates more clouds the more guns you field — a bigger battery lays down a thicker deck of slowing cover.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Rail Gun Nerf',
     notes: [
       {

@@ -222,6 +222,9 @@ interface OrbitalPulseUnit {
 interface GravitonWellUnit {
   x: number
   y: number
+  /** the well drifts as a slow projectile fired from the gun */
+  velocityX: number
+  velocityY: number
   radius: number
   pullSpeedPxPerSec: number
   remainingMs: number
@@ -5027,12 +5030,23 @@ export class GameScene extends Phaser.Scene {
       const interval = this.weaponIntervalMs({ weaponId: 'graviton' })
       if (this.gravitonAccumulatorMs >= interval) {
         const target = this.findClusterTarget()
-        if (target === null) {
+        if (target === null || this.cannons.length === 0) {
           // hold the charge until a cluster forms, so the first well never wastes
           this.gravitonAccumulatorMs = interval
         } else {
           this.gravitonAccumulatorMs = 0
-          this.spawnGravitonWell({ x: target.image.x, y: target.image.y })
+          // fire the well from whichever gun is nearest the cluster
+          const launchCannon = this.cannons.reduce((nearest, cannon) =>
+            Math.abs(cannon.x - target.image.x) < Math.abs(nearest.x - target.image.x)
+              ? cannon
+              : nearest,
+          )
+          this.spawnGravitonWell({
+            originX: launchCannon.x,
+            originY: launchCannon.y - 6,
+            targetX: target.image.x,
+            targetY: target.image.y,
+          })
         }
       }
     }
@@ -5040,10 +5054,16 @@ export class GameScene extends Phaser.Scene {
     if (this.gravitonWells.length === 0) {
       return
     }
+    const seconds = delta / 1_000
     for (const well of this.gravitonWells) {
       if (well.isDead === true) {
         continue
       }
+      // the well drifts along its heading like a slow shell
+      well.x += well.velocityX * seconds
+      well.y += well.velocityY * seconds
+      well.core?.setPosition(well.x, well.y)
+      well.ring?.setPosition(well.x, well.y)
       this.pullEnemiesToward({
         x: well.x,
         y: well.y,
@@ -5058,7 +5078,12 @@ export class GameScene extends Phaser.Scene {
         well.ring.setScale(pulse)
       }
       well.remainingMs -= delta
-      if (well.remainingMs <= 0) {
+      const isOutOfBounds =
+        well.x < -well.radius ||
+        well.x > this.arenaWidth + well.radius ||
+        well.y < -well.radius ||
+        well.y > this.groundY
+      if (well.remainingMs <= 0 || isOutOfBounds === true) {
         well.isDead = true
         well.core?.destroy()
         well.ring?.destroy()
@@ -5067,25 +5092,38 @@ export class GameScene extends Phaser.Scene {
     this.gravitonWells = this.gravitonWells.filter((well) => well.isDead === false)
   }
 
-  private spawnGravitonWell({ x, y }: { x: number; y: number }): void {
+  private spawnGravitonWell({
+    originX,
+    originY,
+    targetX,
+    targetY,
+  }: {
+    originX: number
+    originY: number
+    targetX: number
+    targetY: number
+  }): void {
     const level = this.stats.gravitonLevel
     const radius = GRAVITON.radiusBase + GRAVITON.radiusPerLevel * (level - 1)
     const pullSpeedPxPerSec = GRAVITON.pullSpeedBase + GRAVITON.pullSpeedPerLevel * (level - 1)
     const remainingMs = GRAVITON.durationMsBase + GRAVITON.durationMsPerLevel * (level - 1)
+    const angle = Math.atan2(targetY - originY, targetX - originX)
 
     let core: Phaser.GameObjects.Arc | null = null
     let ring: Phaser.GameObjects.Arc | null = null
     if (this.suppressVisuals === false) {
       // a dark accretion ring with a void core — reads as a gravity well, not a blast
-      ring = this.add.circle(x, y, radius, 0x7c3aed, 0.12).setDepth(DEPTHS.effects)
+      ring = this.add.circle(originX, originY, radius, 0x7c3aed, 0.12).setDepth(DEPTHS.effects)
       ring.setStrokeStyle(3, 0xa855f7, 0.6)
-      core = this.add.circle(x, y, radius * 0.22, 0x1e1b4b, 0.85).setDepth(DEPTHS.effects)
+      core = this.add.circle(originX, originY, radius * 0.22, 0x1e1b4b, 0.85).setDepth(DEPTHS.effects)
       core.setStrokeStyle(2, 0xc4b5fd, 0.9)
     }
 
     this.gravitonWells.push({
-      x,
-      y,
+      x: originX,
+      y: originY,
+      velocityX: Math.cos(angle) * GRAVITON.projectileSpeedPxPerSec,
+      velocityY: Math.sin(angle) * GRAVITON.projectileSpeedPxPerSec,
       radius,
       pullSpeedPxPerSec,
       remainingMs,
@@ -6639,9 +6677,12 @@ export class GameScene extends Phaser.Scene {
     for (const cloud of this.cloudImages) {
       cloud.image.setAlpha(CLOUD.activeAlpha).setScale(cloud.baseScale * scaleFactor)
     }
+    // cover is generated per gun: the base deck plus more clouds for every extra gun
     const desiredCount = Math.min(
       CLOUD.maxClouds,
-      4 + (this.stats.cloudLevel - 1) * CLOUD.cloudsPerStack,
+      4 +
+        (this.stats.cloudLevel - 1) * CLOUD.cloudsPerStack +
+        CLOUD.cloudsPerGun * Math.max(0, this.cannons.length - 1),
     )
     while (this.cloudImages.length < desiredCount) {
       const textureKey = `cloud-${Math.floor(Math.random() * 3)}`
