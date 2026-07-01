@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type Phaser from 'phaser'
+import { useDebounceFn, useEventListener } from '@vueuse/core'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { createPlanetGame } from '@/game/createGame'
@@ -73,6 +74,28 @@ function setSpeed({ multiplier }: { multiplier: number }): void {
 }
 
 let game: Phaser.Game | null = null
+// which shape the arena was built for, so a rotation can rebuild it to fit
+let builtPortrait = false
+
+function containerIsPortrait(): boolean {
+  const el = gameContainer.value
+  return el !== null && el.clientHeight > el.clientWidth
+}
+
+/** rebuild the range for the new shape on a portrait<->landscape flip, else refit */
+const onViewportChanged = useDebounceFn(() => {
+  if (game === null) {
+    return
+  }
+  if (containerIsPortrait() !== builtPortrait) {
+    restartNow()
+  } else {
+    game.scale.refresh()
+  }
+}, 250)
+
+// useEventListener registers now and auto-removes when the view unmounts
+useEventListener(window, ['resize', 'orientationchange'], onViewportChanged)
 let restartTimer: ReturnType<typeof setTimeout> | null = null
 const busUnsubscribes: Array<() => void> = []
 
@@ -144,6 +167,7 @@ function startGame(): void {
   if (gameContainer.value === null) {
     return
   }
+  builtPortrait = containerIsPortrait()
   game = createPlanetGame({
     parent: gameContainer.value,
     sceneData: {

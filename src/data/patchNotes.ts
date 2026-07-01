@@ -22,6 +22,20 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Sound & Rotation Fixes',
+    notes: [
+      {
+        kind: 'fix',
+        text: 'Fixed the sound effects at the very start of a run sometimes not playing — audio is now warmed up on your first tap so nothing gets dropped.',
+      },
+      {
+        kind: 'fix',
+        text: 'Fixed the game not re-fitting the screen when you rotate your device. It now refits on rotation, and rebuilds the arena for the new shape if you flip between portrait and landscape.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Airburst',
     blurb: 'Flak detonations hit harder and look the part.',
     notes: [

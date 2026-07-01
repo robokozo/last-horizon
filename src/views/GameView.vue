@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useLocalStorage } from '@vueuse/core'
+import { useDebounceFn, useEventListener, useLocalStorage } from '@vueuse/core'
 import type Phaser from 'phaser'
 import { onMounted, onUnmounted, ref } from 'vue'
 
@@ -34,11 +34,20 @@ const SPEED_CYCLE: Array<number> = [1, 2, 5]
 
 let game: Phaser.Game | null = null
 const busUnsubscribes: Array<() => void> = []
+// the arena is built portrait or landscape from the container's shape; remember
+// which, so a rotation that flips the shape can rebuild it to fit the new screen
+let builtPortrait = false
+
+function containerIsPortrait(): boolean {
+  const el = gameContainer.value
+  return el !== null && el.clientHeight > el.clientWidth
+}
 
 function startGame(): void {
   if (gameContainer.value === null) {
     return
   }
+  builtPortrait = containerIsPortrait()
   const unlockedNodeIds = metaStore.unlockedNodeIds
   const prestigeLevel = metaStore.prestigeLevel
   game = createPlanetGame({
@@ -75,6 +84,26 @@ function restartRun(): void {
   isPaused.value = false
   startGame()
 }
+
+/**
+ * Keep the game fitted to the screen. A rotation that flips the container between
+ * portrait and landscape rebuilds the arena for the new shape (which restarts the
+ * run — the layout can't be re-oriented in place); any other resize just refits.
+ * Debounced so an orientation change fires once after the browser settles.
+ */
+const onViewportChanged = useDebounceFn(() => {
+  if (game === null) {
+    return
+  }
+  if (containerIsPortrait() !== builtPortrait) {
+    restartRun()
+  } else {
+    game.scale.refresh()
+  }
+}, 250)
+
+// useEventListener registers now and auto-removes when the view unmounts
+useEventListener(window, ['resize', 'orientationchange'], onViewportChanged)
 
 function cycleSpeed(): void {
   const currentIndex = SPEED_CYCLE.indexOf(speedMultiplier.value)

@@ -72,6 +72,22 @@ class SoundEngine {
   private musicBarIndex = 0
   private isMusicOn = localStorage.getItem(MUSIC_STORAGE_KEY) !== 'false'
 
+  constructor() {
+    // browsers gate audio behind a user gesture, and resume() is async — so the
+    // first sounds of a run get dropped if the context is still spinning up. Warm it
+    // up on the first interaction anywhere in the app (menu taps, key presses), long
+    // before the run starts, so the context is already running by then. `once`
+    // auto-removes each listener; ensureContext is idempotent if more than one fires.
+    if (typeof window !== 'undefined') {
+      const unlock = (): void => {
+        this.ensureContext()
+      }
+      window.addEventListener('pointerdown', unlock, { once: true })
+      window.addEventListener('keydown', unlock, { once: true })
+      window.addEventListener('touchstart', unlock, { once: true })
+    }
+  }
+
   muted(): boolean {
     return this.isMuted
   }
