@@ -196,6 +196,7 @@ export const BASE_RUN_STATS: RunStats = {
   momentumLevel: 0,
   airdropLevel: 0,
   seekerLevel: 0,
+  frostSeekerLevel: 0,
   orbitalSweepLevel: 0,
   flakCascadeLevel: 0,
   vanguardLevel: 0,
@@ -383,6 +384,11 @@ export const SYNERGIES = {
   seeker: {
     turnRateDegBase: 200,
     turnRateDegPerLevel: 90,
+  },
+  /** frozen orb × lock down: the stasis array's target-lock steers the icicles */
+  frostseeker: {
+    turnRateDegBase: 280,
+    turnRateDegPerLevel: 70,
   },
   /** rocket pod × mine layer: rocket blasts scatter armed mines */
   mirv: {

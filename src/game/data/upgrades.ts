@@ -595,6 +595,20 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, frostBurstLevel: stats.frostBurstLevel + 1 }),
   },
   {
+    id: 'frostseeker',
+    name: 'Frost Seeker',
+    description:
+      'Synergy: the stasis array’s target-lock guides the frozen orb’s shards — icicles curve onto the nearest invader instead of scattering into empty sky (stacks: tighter turns)',
+    rarity: 'epic',
+    category: 'tactic',
+    maxStacks: BASE_MAX_STACKS,
+    requires: [
+      { id: 'frozen-orb', stacks: 2 },
+      { id: 'lockdown', stacks: 2 },
+    ],
+    apply: (stats) => ({ ...stats, frostSeekerLevel: stats.frostSeekerLevel + 1 }),
+  },
+  {
     id: 'cryoshells',
     name: 'Cryo Shells',
     description:

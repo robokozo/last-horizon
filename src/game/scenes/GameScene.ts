@@ -1,5 +1,7 @@
 import Phaser from 'phaser'
 
+import { applyHoming, type HomingComponent } from '../systems/homing'
+
 import {
   AIRDROP,
   AIRSTRIKE,
@@ -272,6 +274,8 @@ interface BulletUnit {
   hitEnemies: Set<EnemyUnit>
   /** laser blaster: hit counts shared across one burst's bolts, for the multi-hit bonus */
   burstHits?: Map<EnemyUnit, number>
+  /** frost seeker synergy resolves this at spawn for icicles; absent/null ⇒ straight */
+  homing?: HomingComponent | null
   isDead: boolean
 }
 
@@ -305,8 +309,8 @@ interface RocketUnit {
   damage: number
   blastRadius: number
   trailAccumulatorMs: number
-  /** seeker synergy: the cluster target this rocket tracks as it moves */
-  target: EnemyUnit | null
+  /** seeker warheads synergy resolves this at spawn; null ⇒ flies straight */
+  homing: HomingComponent | null
   isDead: boolean
 }
 
@@ -1547,6 +1551,16 @@ export class GameScene extends Phaser.Scene {
       if (bullet.isDead === true) {
         continue
       }
+      // the same system that steers seeker rockets — a bullet only homes if a
+      // spawner resolved the component onto it (icicles do, under frost seeker)
+      if (bullet.homing != null) {
+        applyHoming({
+          entity: bullet,
+          homing: bullet.homing,
+          targets: this.enemies,
+          deltaSeconds: seconds,
+        })
+      }
       bullet.image.x += bullet.velocityX * seconds
       bullet.image.y += bullet.velocityY * seconds
       bullet.traveledPx += Math.hypot(bullet.velocityX, bullet.velocityY) * seconds
@@ -2752,48 +2766,16 @@ export class GameScene extends Phaser.Scene {
       if (rocket.isDead === true) {
         continue
       }
-      // seeker warheads synergy: track the cluster the rocket was aimed at as it
-      // drifts (the usual cause of a miss), only re-acquiring if that target dies
-      if (this.stats.seekerLevel > 0) {
-        if (rocket.target === null || rocket.target.isDead === true) {
-          let nearest: EnemyUnit | null = null
-          let nearestSq = Number.POSITIVE_INFINITY
-          for (const enemy of this.enemies) {
-            if (enemy.isDead === true) {
-              continue
-            }
-            const distanceSq =
-              (enemy.image.x - rocket.image.x) ** 2 + (enemy.image.y - rocket.image.y) ** 2
-            if (distanceSq < nearestSq) {
-              nearestSq = distanceSq
-              nearest = enemy
-            }
-          }
-          rocket.target = nearest
-        }
-        if (rocket.target !== null) {
-          const nearest = rocket.target
-          const speed = Math.hypot(rocket.velocityX, rocket.velocityY)
-          const currentAngle = Math.atan2(rocket.velocityY, rocket.velocityX)
-          const desiredAngle = Math.atan2(
-            nearest.image.y - rocket.image.y,
-            nearest.image.x - rocket.image.x,
-          )
-          const maxTurn =
-            Phaser.Math.DegToRad(
-              SYNERGIES.seeker.turnRateDegBase +
-                SYNERGIES.seeker.turnRateDegPerLevel * (this.stats.seekerLevel - 1),
-            ) * seconds
-          const turn = Phaser.Math.Clamp(
-            Phaser.Math.Angle.Wrap(desiredAngle - currentAngle),
-            -maxTurn,
-            maxTurn,
-          )
-          const newAngle = currentAngle + turn
-          rocket.velocityX = Math.cos(newAngle) * speed
-          rocket.velocityY = Math.sin(newAngle) * speed
-          rocket.image.setRotation(newAngle)
-        }
+      // seeker warheads synergy: steer toward the tracked cluster. The behavior
+      // lives in the homing system now — this loop just runs it on any rocket
+      // that carries the component.
+      if (rocket.homing !== null) {
+        applyHoming({
+          entity: rocket,
+          homing: rocket.homing,
+          targets: this.enemies,
+          deltaSeconds: seconds,
+        })
       }
       rocket.image.x += rocket.velocityX * seconds
       rocket.image.y += rocket.velocityY * seconds
@@ -2918,9 +2900,40 @@ export class GameScene extends Phaser.Scene {
         weaponDamageMultiplier({ weaponId: 'rocket', level: this.stats.rocketLevel }),
       blastRadius: this.rocketBlastRadius(),
       trailAccumulatorMs: 0,
-      target,
+      homing: this.resolveHoming({
+        level: this.stats.seekerLevel,
+        tuning: SYNERGIES.seeker,
+        target,
+      }),
       isDead: false,
     })
+  }
+
+  /**
+   * Resolve the homing component for a projectile at spawn time. The gating is
+   * deliberately per-kind: each spawner passes the synergy level and tuning that
+   * *thematically* belongs to it (rockets → seeker warheads, icicles → frost
+   * seeker), so the shared homing system never bleeds one kind's synergy onto
+   * another. A zero/absent level ⇒ no component ⇒ the projectile flies straight.
+   */
+  private resolveHoming({
+    level,
+    tuning,
+    target,
+  }: {
+    level: number
+    tuning: { turnRateDegBase: number; turnRateDegPerLevel: number }
+    target: EnemyUnit | null
+  }): HomingComponent | null {
+    if (level <= 0) {
+      return null
+    }
+    // track the target the projectile was aimed at as it drifts (the usual cause
+    // of a miss), re-acquiring only if that target dies
+    return {
+      turnRateDeg: tuning.turnRateDegBase + tuning.turnRateDegPerLevel * (level - 1),
+      target,
+    }
   }
 
   private explodeRocket({ rocket }: { rocket: RocketUnit }): void {
@@ -3520,6 +3533,11 @@ export class GameScene extends Phaser.Scene {
         traveledPx: 0,
         maxTravelPx: FROZEN_ORB.iceRangePx,
         hitEnemies: new Set(),
+        homing: this.resolveHoming({
+          level: this.stats.frostSeekerLevel,
+          tuning: SYNERGIES.frostseeker,
+          target: null,
+        }),
         isDead: false,
       })
     }

@@ -21,6 +21,16 @@ export interface PatchEntry {
  */
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
+    date: '2026-07-01',
+    title: 'Frost Seeker',
+    notes: [
+      {
+        kind: 'new',
+        text: 'New synergy — Frost Seeker (Frozen Orb + Lock Down): the stasis array’s target-lock guides the orb’s icicles, so the shards curve onto the nearest invader instead of scattering into empty sky. Higher ranks turn tighter.',
+      },
+    ],
+  },
+  {
     date: '2026-06-24',
     title: 'Clearer Damage Recap',
     notes: [

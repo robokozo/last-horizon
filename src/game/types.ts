@@ -97,6 +97,7 @@ export interface RunStats {
   momentumLevel: number
   airdropLevel: number
   seekerLevel: number
+  frostSeekerLevel: number
   orbitalSweepLevel: number
   flakCascadeLevel: number
   vanguardLevel: number

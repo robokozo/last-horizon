@@ -469,6 +469,15 @@ const EFFECT_BUILDERS: Record<string, EffectBuilder> = {
       unit: 'deg',
     },
   ],
+  frostseeker: ({ level }) => [
+    {
+      label: 'Turn rate',
+      value:
+        SYNERGIES.frostseeker.turnRateDegBase +
+        SYNERGIES.frostseeker.turnRateDegPerLevel * (level - 1),
+      unit: 'deg',
+    },
+  ],
   flakcascade: ({ level }) => [
     {
       label: 'Branches per burst',
