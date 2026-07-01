@@ -5249,9 +5249,15 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** each gun fires its own graviton well projectile at the densest cluster */
+  /** each gun fires its own graviton well projectile at the densest cluster in its range */
   private fireGraviton({ cannon }: { cannon: CannonUnit }): boolean {
-    const target = this.findClusterTarget()
+    const rangeSq = this.stats.range ** 2
+    const inRange = this.enemies.filter(
+      (enemy) =>
+        enemy.isDead === false &&
+        (enemy.image.x - cannon.x) ** 2 + (enemy.image.y - (cannon.y - 6)) ** 2 <= rangeSq,
+    )
+    const target = inRange.length > 0 ? this.findClusterTarget({ pool: inRange }) : null
     if (target === null) {
       return false
     }
@@ -5318,7 +5324,8 @@ export class GameScene extends Phaser.Scene {
     targetY: number
   }): void {
     const level = this.stats.gravitonLevel
-    const radius = GRAVITON.radiusBase + GRAVITON.radiusPerLevel * (level - 1)
+    // reach carries the guns' range and scales with range upgrades; ranks add pull strength
+    const radius = this.stats.range * GRAVITON.radiusRangeFraction
     const pullSpeedPxPerSec = GRAVITON.pullSpeedBase + GRAVITON.pullSpeedPerLevel * (level - 1)
     const remainingMs = GRAVITON.durationMsBase + GRAVITON.durationMsPerLevel * (level - 1)
     const angle = Math.atan2(targetY - originY, targetX - originX)

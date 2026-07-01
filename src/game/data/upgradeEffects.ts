@@ -329,7 +329,7 @@ const EFFECT_BUILDERS: Record<string, EffectBuilder> = {
   graviton: ({ stats, level }) => [
     {
       label: 'Pull radius',
-      value: ramp(GRAVITON.radiusBase, GRAVITON.radiusPerLevel, level),
+      value: stats.range * GRAVITON.radiusRangeFraction,
       unit: 'px',
     },
     {

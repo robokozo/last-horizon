@@ -22,6 +22,20 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Gravity & Rotation',
+    notes: [
+      {
+        kind: 'fix',
+        text: 'Rotating your device no longer restarts your run. The game just refits to the new screen instead of rebuilding the arena.',
+      },
+      {
+        kind: 'balance',
+        text: 'Graviton Well reworked: its pull now reaches as far as your guns do (and grows with range upgrades) instead of a fixed short bubble, its projectile flies out faster to reach the swarm, and its maximum radius is reined in. Each rank now makes the pull stronger rather than wider.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Two New Combos',
     notes: [
       {
