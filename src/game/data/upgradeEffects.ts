@@ -73,6 +73,7 @@ const INTERVAL_RAMP: Record<string, { base: number; step: number; min: number }>
     min: RAILGUN.minIntervalMs,
   },
   laser: { base: LASER.baseIntervalMs, step: LASER.intervalStepMs, min: LASER.minIntervalMs },
+  cloud: { base: CLOUD.baseIntervalMs, step: CLOUD.intervalStepMs, min: CLOUD.minIntervalMs },
   'frozen-orb': {
     base: FROZEN_ORB.baseIntervalMs,
     step: FROZEN_ORB.intervalStepMs,
@@ -356,7 +357,7 @@ const EFFECT_BUILDERS: Record<string, EffectBuilder> = {
     },
     { label: 'Cooldown', value: reload('lockdown', level, stats), unit: 'sec' },
   ],
-  cloud: ({ level }) => [
+  cloud: ({ stats, level }) => [
     {
       label: 'Slow',
       value:
@@ -368,6 +369,12 @@ const EFFECT_BUILDERS: Record<string, EffectBuilder> = {
         100,
       unit: 'percent',
     },
+    {
+      label: 'Clouds / gun',
+      value: CLOUD.cloudsPerGun + (level - 1) * CLOUD.cloudsPerStack,
+      unit: 'int',
+    },
+    { label: 'Seed cooldown', value: reload('cloud', level, stats), unit: 'sec' },
   ],
   nanite: ({ level }) => [{ label: 'Repair', value: level, unit: 'dps' }],
 

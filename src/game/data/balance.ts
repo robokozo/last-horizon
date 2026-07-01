@@ -652,6 +652,10 @@ export const BFG = {
 
 /** active clouds slow invaders that fall through them */
 export const CLOUD = {
+  /** Cloud Cover is an active weapon now: each gun lobs a seeder shell that bursts into a cloud */
+  baseIntervalMs: 1_500,
+  intervalStepMs: 120,
+  minIntervalMs: 800,
   /** invader speed multiplier inside a cloud at level 1 */
   slowFactorBase: 0.6,
   slowFactorPerLevel: 0.05,

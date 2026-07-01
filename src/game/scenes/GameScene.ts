@@ -145,6 +145,17 @@ interface CloudUnit {
   baseScale: number
 }
 
+/** an arcing canister a gun lobs into the sky; it bursts into a cloud at its apex */
+interface CloudSeederShell {
+  image: Phaser.GameObjects.Image
+  velocityX: number
+  velocityY: number
+  remainingMs: number
+  targetX: number
+  targetY: number
+  isDead: boolean
+}
+
 /** a thermal lance beam anchored at a cannon, sweeping an arc across the sky */
 interface SweepBeam {
   originX: number
@@ -388,6 +399,8 @@ const DUMMY_RESPAWN_MS = 1_500
 const MINE_BALLOON_OFFSET_Y = 24
 /** the height a freshly inflated mine starts at, just above the ground */
 const MINE_GROUND_OFFSET = 14
+/** gravity pulling a lobbed cloud-seeder canister back down, px/s² */
+const CLOUD_SEEDER_GRAVITY = 520
 /** how fast an inflated balloon carries its mine up off the ground, px/s */
 const MINE_RISE_SPEED_PX_PER_SEC = 80
 /** the altitude a balloon mine floats up to and holds, near the top of the sky */
@@ -475,6 +488,7 @@ export class GameScene extends Phaser.Scene {
   private cannons: Array<CannonUnit> = []
   private buildings: Array<BuildingUnit> = []
   private cloudImages: Array<CloudUnit> = []
+  private cloudSeeders: Array<CloudSeederShell> = []
   private gemCount = 0
 
   private spawnAccumulatorMs = 0
@@ -483,7 +497,6 @@ export class GameScene extends Phaser.Scene {
   private airstrikeAccumulatorMs = 0
   private bfgAccumulatorMs = 0
   private orbitalAccumulatorMs = 0
-  private gravitonAccumulatorMs = 0
   private stormAccumulatorMs = 0
   private aegisAccumulatorMs = 0
   private hudAccumulatorMs = 0
@@ -834,6 +847,10 @@ export class GameScene extends Phaser.Scene {
       cloud.image.destroy()
     }
     this.cloudImages = []
+    for (const shell of this.cloudSeeders) {
+      shell.image.destroy()
+    }
+    this.cloudSeeders = []
     this.sweeps = []
     this.orbitalStrikes = []
     for (const pulse of this.orbitalPulses) {
@@ -862,7 +879,6 @@ export class GameScene extends Phaser.Scene {
     this.airstrikeAccumulatorMs = 0
     this.bfgAccumulatorMs = 0
     this.orbitalAccumulatorMs = 0
-    this.gravitonAccumulatorMs = 0
     this.stormAccumulatorMs = 0
     this.aegisAccumulatorMs = 0
 
@@ -1111,6 +1127,7 @@ export class GameScene extends Phaser.Scene {
     this.updateMines({ delta })
     this.updateOrbitalLaser({ delta })
     this.updateGravitonWells({ delta })
+    this.updateCloudSeeders({ delta })
     this.updateStormFront({ delta })
     this.updateIonTrails({ delta })
     this.updateBossSpawners({ delta })
@@ -3141,6 +3158,12 @@ export class GameScene extends Phaser.Scene {
     if (this.stats.lanceLevel > 0) {
       weaponIds.push('lance')
     }
+    if (this.stats.gravitonLevel > 0) {
+      weaponIds.push('graviton')
+    }
+    if (this.stats.cloudLevel > 0) {
+      weaponIds.push('cloud')
+    }
     return weaponIds.sort((a, b) => a.localeCompare(b))
   }
 
@@ -3196,6 +3219,8 @@ export class GameScene extends Phaser.Scene {
         return this.stats.orbitalLaserLevel
       case 'graviton':
         return this.stats.gravitonLevel
+      case 'cloud':
+        return this.stats.cloudLevel
       default:
         return 0
     }
@@ -3271,6 +3296,12 @@ export class GameScene extends Phaser.Scene {
     }
     if (weaponId === 'lance') {
       return this.fireLance({ cannon })
+    }
+    if (weaponId === 'graviton') {
+      return this.fireGraviton({ cannon })
+    }
+    if (weaponId === 'cloud') {
+      return this.fireCloudSeeder({ cannon })
     }
     return false
   }
@@ -4019,12 +4050,73 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** an extra active cloud — used by cloud seeding and smokescreen mines */
-  private spawnSeededCloud({ x, y }: { x: number; y: number }): void {
-    const cloudCap =
-      CLOUD.maxClouds +
+  /** the most active clouds the sky holds — scales with guns and rank (plus synergies) */
+  private cloudCoverCap(): number {
+    const perGun = CLOUD.cloudsPerGun + (this.stats.cloudLevel - 1) * CLOUD.cloudsPerStack
+    const scaled = Math.min(CLOUD.maxClouds, Math.max(1, this.cannons.length) * perGun)
+    return (
+      scaled +
       SYNERGIES.seeding.extraCloudCapPerLevel * this.stats.seedingLevel +
       SYNERGIES.smokescreen.extraCloudCapPerLevel * this.stats.smokescreenLevel
-    if (this.cloudImages.length >= cloudCap) {
+    )
+  }
+
+  /** each gun lobs a seeder canister that arcs into the sky and bursts into a cloud */
+  private fireCloudSeeder({ cannon }: { cannon: CannonUnit }): boolean {
+    // hold fire once the sky is seeded to capacity
+    if (this.cloudImages.length + this.cloudSeeders.length >= this.cloudCoverCap()) {
+      return false
+    }
+    const originX = cannon.x
+    const originY = cannon.y - 6
+    const { x, y } = this.cloudPosition({ layer: Math.random() })
+    const flightSeconds = 0.7 + Math.random() * 0.4
+    const velocityX = (x - originX) / flightSeconds
+    const velocityY = (y - originY) / flightSeconds - 0.5 * CLOUD_SEEDER_GRAVITY * flightSeconds
+    soundEngine.play({ name: 'launch' })
+    const image = this.add
+      .image(originX, originY, 'bomb')
+      .setScale(1.2)
+      .setTint(0xbfdbfe)
+      .setDepth(DEPTHS.bullets)
+    this.cloudSeeders.push({
+      image,
+      velocityX,
+      velocityY,
+      remainingMs: flightSeconds * 1_000,
+      targetX: x,
+      targetY: y,
+      isDead: false,
+    })
+    return true
+  }
+
+  private updateCloudSeeders({ delta }: { delta: number }): void {
+    if (this.cloudSeeders.length === 0) {
+      return
+    }
+    const seconds = delta / 1_000
+    for (const shell of this.cloudSeeders) {
+      if (shell.isDead === true) {
+        continue
+      }
+      shell.remainingMs -= delta
+      if (shell.remainingMs <= 0) {
+        shell.isDead = true
+        shell.image.destroy()
+        this.spawnSeededCloud({ x: shell.targetX, y: shell.targetY })
+        continue
+      }
+      shell.image.x += shell.velocityX * seconds
+      shell.image.y += shell.velocityY * seconds
+      shell.velocityY += CLOUD_SEEDER_GRAVITY * seconds
+      shell.image.rotation += 3 * seconds
+    }
+    this.cloudSeeders = this.cloudSeeders.filter((shell) => shell.isDead === false)
+  }
+
+  private spawnSeededCloud({ x, y }: { x: number; y: number }): void {
+    if (this.cloudImages.length >= this.cloudCoverCap()) {
       return
     }
     const textureKey = `cloud-${Math.floor(Math.random() * 3)}`
@@ -5070,33 +5162,22 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private updateGravitonWells({ delta }: { delta: number }): void {
-    if (this.stats.gravitonLevel > 0) {
-      this.gravitonAccumulatorMs += delta
-      const interval = this.weaponIntervalMs({ weaponId: 'graviton' })
-      if (this.gravitonAccumulatorMs >= interval) {
-        const target = this.findClusterTarget()
-        if (target === null || this.cannons.length === 0) {
-          // hold the charge until a cluster forms, so the first well never wastes
-          this.gravitonAccumulatorMs = interval
-        } else {
-          this.gravitonAccumulatorMs = 0
-          // fire the well from whichever gun is nearest the cluster
-          const launchCannon = this.cannons.reduce((nearest, cannon) =>
-            Math.abs(cannon.x - target.image.x) < Math.abs(nearest.x - target.image.x)
-              ? cannon
-              : nearest,
-          )
-          this.spawnGravitonWell({
-            originX: launchCannon.x,
-            originY: launchCannon.y - 6,
-            targetX: target.image.x,
-            targetY: target.image.y,
-          })
-        }
-      }
+  /** each gun fires its own graviton well projectile at the densest cluster */
+  private fireGraviton({ cannon }: { cannon: CannonUnit }): boolean {
+    const target = this.findClusterTarget()
+    if (target === null) {
+      return false
     }
+    this.spawnGravitonWell({
+      originX: cannon.x,
+      originY: cannon.y - 6,
+      targetX: target.image.x,
+      targetY: target.image.y,
+    })
+    return true
+  }
 
+  private updateGravitonWells({ delta }: { delta: number }): void {
     if (this.gravitonWells.length === 0) {
       return
     }
@@ -6719,26 +6800,11 @@ export class GameScene extends Phaser.Scene {
     if (this.stats.cloudLevel <= 0) {
       return
     }
+    // the deck is built by seeder shells now (fireCloudSeeder); here we just thicken and
+    // rescale whatever clouds are already in the sky when the cover ranks up
     const scaleFactor = this.cloudScaleFactor()
     for (const cloud of this.cloudImages) {
       cloud.image.setAlpha(CLOUD.activeAlpha).setScale(cloud.baseScale * scaleFactor)
-    }
-    // cover is generated per gun, same as the other battlefield weapons: each gun lays
-    // down its own clouds (base + per rank), multiplied by how many guns you field
-    const perGun = CLOUD.cloudsPerGun + (this.stats.cloudLevel - 1) * CLOUD.cloudsPerStack
-    const desiredCount = Math.min(CLOUD.maxClouds, Math.max(1, this.cannons.length) * perGun)
-    while (this.cloudImages.length < desiredCount) {
-      const textureKey = `cloud-${Math.floor(Math.random() * 3)}`
-      // random layer so added cover fills out the whole deck, not just one height
-      const { x, y } = this.cloudPosition({ layer: Math.random() })
-      const baseScale = 0.85 + Math.random() * 0.7
-      const image = this.add
-        .image(x, y, textureKey)
-        .setAlpha(0)
-        .setScale(baseScale * scaleFactor)
-        .setDepth(DEPTHS.clouds)
-      this.tweens.add({ targets: image, alpha: CLOUD.activeAlpha, duration: 900 })
-      this.cloudImages.push({ image, speed: 6 + Math.random() * 14, baseScale })
     }
   }
 

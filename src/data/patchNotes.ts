@@ -22,6 +22,20 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Seeding the Sky',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'The Graviton Well is now fired from every gun — each emplacement lobs its own slow-drifting well at the swarm, so its clumping power scales with your battery like everything else.',
+      },
+      {
+        kind: 'new',
+        text: 'Cloud Cover is reworked into an active weapon that fits its fantasy: each gun lobs a seeder canister arcing into the sky that bursts into a slowing cloud where it lands. More guns and higher ranks seed a thicker deck.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Scaling with the Battery',
     blurb: 'The battlefield weapons now grow with how many guns you field.',
     notes: [
