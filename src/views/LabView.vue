@@ -43,7 +43,6 @@ const elapsedMs = ref(0)
 const dummyFormation = ref<SandboxLayout['formation']>('field')
 const dummySpread = ref(100)
 const dummiesMoving = ref(false)
-const isMainGunEnabled = ref(true)
 /**
  * One HP control for both live dummies and the benchmark. null = invincible
  * (live only; finite dummies die and respawn, for kill-triggered effects).
@@ -53,8 +52,6 @@ const TARGET_HP_OPTIONS: Array<number | null> = [null, 25, 100, 500, 2000]
 /** the benchmark needs a finite target, so ∞ falls back to this when a diagnostic runs */
 const DIAG_HP_FALLBACK = 100
 const diagEnemyHp = computed(() => targetHp.value ?? DIAG_HP_FALLBACK)
-/** stream formation: uniform dummies (at Enemy HP) vs a seeded mix of real archetypes */
-const streamEnemyMix = ref(false)
 /**
  * One speed control for both live play and diagnostic watch runs: 0.5× slow-mo
  * for inspecting visuals, high multipliers for letting DPS converge on screen.
@@ -73,9 +70,19 @@ function setPrestige({ level }: { level: number }): void {
   scheduleRestart()
 }
 
-/** force a cannon count (same arena) — isolates per-gun value for balance work */
-const CANNON_OPTIONS: Array<number | null> = [null, 1, 2, 3, 4]
+/**
+ * One guns control: null = the run's natural cannon count, 0 = turrets stand but
+ * the main gun is silenced (isolates whatever else is being tested), 1+ forces a
+ * count for per-gun balance work. Diagnostics grade at this too (auto/0 → 1).
+ */
+const CANNON_OPTIONS: Array<number | null> = [null, 0, 1, 2, 4, 6]
 const cannonOverride = ref<number | null>(null)
+const diagCannons = computed(() => {
+  if (cannonOverride.value === null || cannonOverride.value === 0) {
+    return 1
+  }
+  return cannonOverride.value
+})
 
 function setCannons({ count }: { count: number | null }): void {
   cannonOverride.value = count
@@ -171,7 +178,9 @@ function startGame(): void {
     sceneData: {
       startingStats: {
         ...applyPrestige({ stats: buildSandboxStats(), prestigeLevel: prestigeLevel.value }),
-        ...(cannonOverride.value !== null ? { cannonCount: cannonOverride.value } : {}),
+        ...(cannonOverride.value !== null && cannonOverride.value > 0
+          ? { cannonCount: cannonOverride.value }
+          : {}),
       },
       stardustMultiplier: 1,
       mode: 'sandbox',
@@ -181,12 +190,12 @@ function startGame(): void {
         formation: dummyFormation.value,
         spread: dummySpread.value / 100,
         isMoving: dummiesMoving.value,
-        isMainGunEnabled: isMainGunEnabled.value,
+        // guns 0 = turrets stand but the main gun holds fire
+        isMainGunEnabled: cannonOverride.value !== 0,
         dummyHp: targetHp.value,
-        // stream flows enemies in continuously; seed keeps the wave reproducible
-        ...(dummyFormation.value === 'stream'
-          ? { seed: 1, enemyMix: streamEnemyMix.value, mixHpScale: 1 }
-          : {}),
+        // stream-only fields; the engine ignores them for field/boss
+        enemyMix: enemyMix.value,
+        mixHpScale: enemyMixScale.value,
       },
     },
   })
@@ -209,18 +218,8 @@ function toggleMotion(): void {
   scheduleRestart()
 }
 
-function toggleMainGun(): void {
-  isMainGunEnabled.value = isMainGunEnabled.value === false
-  scheduleRestart()
-}
-
 function setTargetHp({ hp }: { hp: number | null }): void {
   targetHp.value = hp
-  scheduleRestart()
-}
-
-function setStreamEnemyMix({ mixed }: { mixed: boolean }): void {
-  streamEnemyMix.value = mixed
   scheduleRestart()
 }
 
@@ -287,14 +286,10 @@ const WATCH_DURATION_MS = 24_000
 const DIAG_SEED = 1337
 /** the HP values the one-click sweep grades against, back to back */
 const DIAG_HP_SWEEP = [25, 100, 1000] as const
-/** per-cannon weapons (flak, flame, lance, mines, main) scale with this; pick the count to grade at */
-const DIAG_CANNON_OPTIONS = [1, 2, 4, 6] as const
-
-const diagCannons = ref<number>(1)
-/** uniform single-HP wave vs a seeded mix of real archetypes */
-const diagEnemyMix = ref(false)
+/** uniform single-HP wave vs a seeded mix of real archetypes — live stream and diagnostics share it */
+const enemyMix = ref(false)
 /** mixed mode: roster HP multiplier (models later, tankier waves) */
-const diagMixScale = ref<number>(1)
+const enemyMixScale = ref<number>(1)
 const DIAG_MIX_SCALES = [1, 4, 16] as const
 const isDiagnosing = ref(false)
 const diagStatus = ref('')
@@ -344,14 +339,13 @@ const multiSynergyTable = computed(() => {
   }
 })
 
-function setDiagCannons({ count }: { count: number }): void {
-  diagCannons.value = count
-}
 function setEnemyMix({ mixed }: { mixed: boolean }): void {
-  diagEnemyMix.value = mixed
+  enemyMix.value = mixed
+  scheduleRestart()
 }
 function setMixScale({ scale }: { scale: number }): void {
-  diagMixScale.value = scale
+  enemyMixScale.value = scale
+  scheduleRestart()
 }
 
 /** shared driver for the weapon sweep — fast (silent, instant) or watch (live, fast playback) */
@@ -382,8 +376,8 @@ async function runDiagnostic({
       durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
       cannonCount: diagCannons.value,
       tiers: DIAG_TIERS,
-      enemyMix: diagEnemyMix.value,
-      mixHpScale: diagMixScale.value,
+      enemyMix: enemyMix.value,
+      mixHpScale: enemyMixScale.value,
       mode,
       watchSpeed: watchPlaybackSpeed.value,
       onProgress: ({ done, total, label }) => {
@@ -439,8 +433,8 @@ async function runSynergies({
       durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
       cannonCount: diagCannons.value,
       tiers: DIAG_TIERS,
-      enemyMix: diagEnemyMix.value,
-      mixHpScale: diagMixScale.value,
+      enemyMix: enemyMix.value,
+      mixHpScale: enemyMixScale.value,
       mode,
       watchSpeed: watchPlaybackSpeed.value,
       onProgress: ({ done, total, label }) => {
@@ -497,8 +491,8 @@ async function runHpSweep({ kind }: { kind: 'weapons' | 'synergies' }): Promise<
         durationMs: DIAG_DURATION_MS,
         cannonCount: diagCannons.value,
         tiers: DIAG_TIERS,
-        enemyMix: diagEnemyMix.value,
-        mixHpScale: diagMixScale.value,
+        enemyMix: enemyMix.value,
+        mixHpScale: enemyMixScale.value,
         mode: 'fast' as const,
         onProgress: ({ done, total, label }: { done: number; total: number; label: string }) => {
           diagStatus.value = `${enemyHp} HP (${index + 1}/${DIAG_HP_SWEEP.length}) — ${label} (${done}/${total})`
@@ -558,8 +552,8 @@ function exposeDiagnosticHook(): void {
       durationMs: options.durationMs ?? DIAG_DURATION_MS,
       cannonCount: options.cannonCount ?? diagCannons.value,
       tiers: options.tiers ?? DIAG_TIERS,
-      enemyMix: options.enemyMix ?? diagEnemyMix.value,
-      mixHpScale: options.mixHpScale ?? diagMixScale.value,
+      enemyMix: options.enemyMix ?? enemyMix.value,
+      mixHpScale: options.mixHpScale ?? enemyMixScale.value,
       mode: options.mode ?? 'fast',
       watchSpeed: options.watchSpeed ?? watchPlaybackSpeed.value,
     })
@@ -576,8 +570,8 @@ function exposeDiagnosticHook(): void {
       durationMs: options.durationMs ?? DIAG_DURATION_MS,
       cannonCount: options.cannonCount ?? diagCannons.value,
       tiers: options.tiers ?? DIAG_TIERS,
-      enemyMix: options.enemyMix ?? diagEnemyMix.value,
-      mixHpScale: options.mixHpScale ?? diagMixScale.value,
+      enemyMix: options.enemyMix ?? enemyMix.value,
+      mixHpScale: options.mixHpScale ?? enemyMixScale.value,
       mode: options.mode ?? 'fast',
       watchSpeed: options.watchSpeed ?? watchPlaybackSpeed.value,
     })
@@ -598,8 +592,8 @@ function exposeDiagnosticHook(): void {
         durationMs: options.durationMs ?? DIAG_DURATION_MS,
         cannonCount: options.cannonCount ?? diagCannons.value,
         tiers: options.tiers ?? DIAG_TIERS,
-        enemyMix: options.enemyMix ?? diagEnemyMix.value,
-        mixHpScale: options.mixHpScale ?? diagMixScale.value,
+        enemyMix: options.enemyMix ?? enemyMix.value,
+        mixHpScale: options.mixHpScale ?? enemyMixScale.value,
         mode: 'fast' as const,
       }
       results.push(
@@ -726,11 +720,7 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <div
-          v-if="dummyFormation === 'stream'"
-          class="flex items-center gap-1.5"
-          data-testid="stream-enemy-mix"
-        >
+        <div class="flex items-center gap-1.5" data-testid="enemy-mix">
           <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
             Enemies
           </p>
@@ -738,11 +728,12 @@ onUnmounted(() => {
             type="button"
             class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
             :class="
-              streamEnemyMix === false
+              enemyMix === false
                 ? 'bg-lime-400 text-slate-950'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             "
-            @click="streamEnemyMix === true && setStreamEnemyMix({ mixed: false })"
+            :disabled="isDiagnosing === true"
+            @click="enemyMix === true && setEnemyMix({ mixed: false })"
           >
             Uniform
           </button>
@@ -750,13 +741,35 @@ onUnmounted(() => {
             type="button"
             class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
             :class="
-              streamEnemyMix === true
+              enemyMix === true
                 ? 'bg-lime-400 text-slate-950'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             "
-            @click="streamEnemyMix === false && setStreamEnemyMix({ mixed: true })"
+            :disabled="isDiagnosing === true"
+            @click="enemyMix === false && setEnemyMix({ mixed: true })"
           >
             Realistic
+          </button>
+        </div>
+
+        <div v-if="enemyMix === true" class="flex items-center gap-1.5" data-testid="mix-scale">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Mix HP ×
+          </p>
+          <button
+            v-for="option in DIAG_MIX_SCALES"
+            :key="option"
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              enemyMixScale === option
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            :disabled="isDiagnosing === true"
+            @click="setMixScale({ scale: option })"
+          >
+            ×{{ option }}
           </button>
         </div>
 
@@ -787,36 +800,6 @@ onUnmounted(() => {
             @click="dummiesMoving === false && toggleMotion()"
           >
             Moving
-          </button>
-        </div>
-
-        <div class="flex items-center gap-1.5" data-testid="main-gun-toggle">
-          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Main gun
-          </p>
-          <button
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
-            :class="
-              isMainGunEnabled === true
-                ? 'bg-lime-400 text-slate-950'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            "
-            @click="isMainGunEnabled === false && toggleMainGun()"
-          >
-            Firing
-          </button>
-          <button
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
-            :class="
-              isMainGunEnabled === false
-                ? 'bg-lime-400 text-slate-950'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            "
-            @click="isMainGunEnabled === true && toggleMainGun()"
-          >
-            Silenced
           </button>
         </div>
 
@@ -855,11 +838,15 @@ onUnmounted(() => {
                 ? 'bg-lime-400 text-slate-950'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             "
+            :disabled="isDiagnosing === true"
             @click="setCannons({ count: option })"
           >
             {{ option ?? 'auto' }}
           </button>
         </div>
+        <p v-if="cannonOverride === 0" class="text-xs text-slate-500" data-testid="guns-zero-note">
+          0 keeps the turrets standing but silences the main gun — other weapons still fire.
+        </p>
 
         <div class="flex items-center gap-1.5" data-testid="sim-prestige">
           <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -1036,91 +1023,14 @@ onUnmounted(() => {
       <!-- ── dps diagnostic ───────────────────────────────────────── -->
       <div class="flex flex-col gap-1.5">
         <p class="text-xs text-slate-500" data-testid="diag-hp-note">
-          Uniform runs grade against
-          <span class="font-semibold text-slate-400">Enemy HP</span> above (∞ →
-          {{ DIAG_HP_FALLBACK }}); watch runs play at
-          <span class="font-semibold text-slate-400">Speed</span> above (min ×{{
+          Diagnostics grade with the setup above:
+          <span class="font-semibold text-slate-400">Enemy HP</span> (∞ → {{ DIAG_HP_FALLBACK }}),
+          <span class="font-semibold text-slate-400">Enemies</span> mix,
+          <span class="font-semibold text-slate-400">Guns</span> (auto/0 → 1), and
+          <span class="font-semibold text-slate-400">Speed</span> for watch runs (min ×{{
             WATCH_SPEED_FLOOR
           }}).
         </p>
-
-        <div class="flex items-center gap-1.5" data-testid="diag-enemy-mix">
-          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Enemies
-          </p>
-          <button
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
-            :class="
-              diagEnemyMix === false
-                ? 'bg-lime-400 text-slate-950'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            "
-            :disabled="isDiagnosing === true"
-            @click="setEnemyMix({ mixed: false })"
-          >
-            Uniform
-          </button>
-          <button
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
-            :class="
-              diagEnemyMix === true
-                ? 'bg-lime-400 text-slate-950'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            "
-            :disabled="isDiagnosing === true"
-            @click="setEnemyMix({ mixed: true })"
-          >
-            Mixed
-          </button>
-        </div>
-
-        <div
-          v-if="diagEnemyMix === true"
-          class="flex items-center gap-1.5"
-          data-testid="diag-mix-scale"
-        >
-          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Mix HP ×
-          </p>
-          <button
-            v-for="option in DIAG_MIX_SCALES"
-            :key="option"
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
-            :class="
-              diagMixScale === option
-                ? 'bg-lime-400 text-slate-950'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            "
-            :disabled="isDiagnosing === true"
-            @click="setMixScale({ scale: option })"
-          >
-            ×{{ option }}
-          </button>
-        </div>
-
-        <div class="flex items-center gap-1.5" data-testid="diag-cannons">
-          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Cannons
-          </p>
-          <button
-            v-for="option in DIAG_CANNON_OPTIONS"
-            :key="option"
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
-            :class="
-              diagCannons === option
-                ? 'bg-lime-400 text-slate-950'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            "
-            :disabled="isDiagnosing === true"
-            @click="setDiagCannons({ count: option })"
-          >
-            {{ option }}
-          </button>
-        </div>
 
         <button
           type="button"
