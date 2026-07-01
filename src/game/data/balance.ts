@@ -701,7 +701,7 @@ export const GRAVITON = {
   durationMsBase: 1_800,
   durationMsPerLevel: 250,
   /** the well's pull reach = the gun's range × this, so it carries the guns' range (no per-level growth) */
-  radiusRangeFraction: 0.3,
+  radiusRangeFraction: 0.42,
   /** how hard invaders are dragged toward the center (px/sec) — ranks pull harder */
   pullSpeedBase: 75,
   pullSpeedPerLevel: 28,
