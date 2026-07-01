@@ -613,12 +613,12 @@ export const LOCKDOWN = {
 } as const
 
 export const RAILGUN = {
-  baseIntervalMs: 5_500,
+  baseIntervalMs: 6_500,
   intervalStepMs: 600,
-  minIntervalMs: 3_800,
+  minIntervalMs: 4_600,
   /** beam damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
-  baseDamageMult: 5,
-  damageMultPerLevel: 2,
+  baseDamageMult: 3.5,
+  damageMultPerLevel: 1.5,
   beamHalfWidthPx: 7,
 } as const
 

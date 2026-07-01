@@ -22,6 +22,16 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Rail Gun Nerf',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'The Rail Gun was overperforming. Its beam now hits for less per shot (base ×5→×3.5 damage, and less per rank) and reloads slower (5.5s→6.5s, and a higher floor at high ranks). It still skewers everything along the line — it just does it less often and a bit softer.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Sound & Rotation Fixes',
     notes: [
       {
