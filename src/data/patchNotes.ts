@@ -22,6 +22,16 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Clearer Damage Recap',
+    notes: [
+      {
+        kind: 'fix',
+        text: 'The end-of-run damage breakdown now credits static-field damage to the weapon/synergy that actually emitted it, instead of lumping it into a generic "Static Field" line — so the recap maps more directly to your build.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Gravity & Rotation',
     notes: [
       {

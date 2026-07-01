@@ -6109,8 +6109,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** the small static field a synergy weapon emits on hit — chips current hp to a fixed floor */
-  private applyStaticField({ x, y }: { x: number; y: number }): void {
+  /**
+   * The small static field a synergy weapon emits on hit — chips current hp to a
+   * fixed floor. Its damage is attributed to the weapon/synergy that emitted it (not
+   * a generic bucket) so the recap maps it directly to the source.
+   */
+  private applyStaticField({ x, y, source }: { x: number; y: number; source: string }): void {
     for (const enemy of this.enemies) {
       if (enemy.isDead === true) {
         continue
@@ -6124,7 +6128,8 @@ export class GameScene extends Phaser.Scene {
         continue
       }
       const amount = Math.min(enemy.hp * SYNERGY_STATIC.percent, enemy.hp - floorHp)
-      this.damageEnemy({ enemy, amount, source: 'static', canCrit: false })
+      // emitStatic: false so the field's own damage doesn't recursively re-trigger it
+      this.damageEnemy({ enemy, amount, source, canCrit: false, emitStatic: false })
     }
   }
 
@@ -6134,6 +6139,7 @@ export class GameScene extends Phaser.Scene {
     source,
     canCrit = true,
     isPreRolledCrit = false,
+    emitStatic = true,
   }: {
     enemy: EnemyUnit
     amount: number
@@ -6142,6 +6148,8 @@ export class GameScene extends Phaser.Scene {
     canCrit?: boolean
     /** the fire-time crit verdict, so the damage popup still shows it */
     isPreRolledCrit?: boolean
+    /** false for the static field's own damage, so it doesn't re-trigger itself */
+    emitStatic?: boolean
   }): void {
     if (enemy.isDead === true) {
       return
@@ -6168,9 +6176,10 @@ export class GameScene extends Phaser.Scene {
       return
     }
     // a damaging synergy turns its base weapon into a static-field emitter: strip a
-    // slice of every nearby invader's CURRENT hp (to a fixed floor) before this hit
-    if (source !== 'static' && this.sourceHasStaticField({ source }) === true) {
-      this.applyStaticField({ x: enemy.image.x, y: enemy.image.y })
+    // slice of every nearby invader's CURRENT hp (to a fixed floor) before this hit,
+    // crediting the field's damage to this same source
+    if (emitStatic === true && this.sourceHasStaticField({ source }) === true) {
+      this.applyStaticField({ x: enemy.image.x, y: enemy.image.y, source })
     }
     let finalAmount = amount
     // crit chance applies to every weapon system, rolled per hit
