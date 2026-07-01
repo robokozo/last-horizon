@@ -446,8 +446,9 @@ export const ORBITAL_LASER = {
   strikeRadius: 90,
   strikeRadiusPerLevel: 18,
   /** strike damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
-  baseDamageMult: 16,
-  damageMultPerLevel: 14,
+  // one strike per gun now, so per-strike damage is cut to keep the total in check
+  baseDamageMult: 10,
+  damageMultPerLevel: 9,
 } as const
 
 /**
@@ -632,8 +633,9 @@ export const AIRSTRIKE = {
   bombFuseMs: 650,
   bombFallSpeedPxPerSec: 130,
   /** bomb damage = bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
-  baseDamageMult: 1.5,
-  damageMultPerLevel: 0.4,
+  // one jet launches per gun now, so per-bomb damage is trimmed to offset the extra sorties
+  baseDamageMult: 1.1,
+  damageMultPerLevel: 0.3,
   baseBlastRadius: 58,
   blastRadiusPerLevel: 6,
 } as const
@@ -643,8 +645,9 @@ export const BFG = {
   intervalStepMs: 2_000,
   minIntervalMs: 15_000,
   /** hits every invader on screen: bullet damage × (baseDamageMult + damageMultPerLevel × (level − 1)) */
-  baseDamageMult: 12,
-  damageMultPerLevel: 5,
+  // the discharge now scales with gun count, so the base is cut to keep it sane at 1 gun
+  baseDamageMult: 6,
+  damageMultPerLevel: 2.5,
 } as const
 
 /** active clouds slow invaders that fall through them */
@@ -653,10 +656,10 @@ export const CLOUD = {
   slowFactorBase: 0.6,
   slowFactorPerLevel: 0.05,
   slowFactorMin: 0.4,
-  /** clouds added per stack beyond the first */
+  /** extra clouds each gun generates per rank beyond the first */
   cloudsPerStack: 2,
-  /** each gun beyond the first generates this many more clouds — cover scales with the battery */
-  cloudsPerGun: 3,
+  /** clouds each gun generates at rank 1 — total cover = guns × (this + perStack × ranks) */
+  cloudsPerGun: 4,
   maxClouds: 40,
   activeAlpha: 0.26,
   /** every cloud grows by this fraction per rank past the first — bigger banks cover more sky */

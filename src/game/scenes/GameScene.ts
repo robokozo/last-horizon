@@ -3748,7 +3748,11 @@ export class GameScene extends Phaser.Scene {
           this.airstrikeAccumulatorMs = interval
         } else {
           this.airstrikeAccumulatorMs = 0
-          this.spawnStrafingPlane()
+          // one sortie per gun — a squadron crisscrosses instead of a lone jet
+          const sorties = Math.max(1, this.cannons.length)
+          for (let index = 0; index < sorties; index += 1) {
+            this.spawnStrafingPlane()
+          }
         }
       }
     }
@@ -4204,8 +4208,13 @@ export class GameScene extends Phaser.Scene {
     })
     this.shakeCamera({ durationMs: 300, intensity: 0.008 })
 
+    // the screen-wide discharge scales with the size of the battery (one big blast,
+    // not one per gun — a wall of green flashes would be unreadable)
+    const gunCount = Math.max(1, this.cannons.length)
     const bfgDamage =
-      this.stats.damage * weaponDamageMultiplier({ weaponId: 'bfg', level: this.stats.bfgLevel })
+      this.stats.damage *
+      weaponDamageMultiplier({ weaponId: 'bfg', level: this.stats.bfgLevel }) *
+      gunCount
     for (const enemy of this.enemies) {
       if (enemy.isDead === true) {
         continue
@@ -4848,12 +4857,16 @@ export class GameScene extends Phaser.Scene {
           this.orbitalAccumulatorMs = interval
         } else {
           this.orbitalAccumulatorMs = 0
-          this.orbitalStrikes.push({
-            x: target.image.x,
-            y: target.image.y,
-            lockRemainingMs: lockOnMs,
-            isDead: false,
-          })
+          // one strike per gun, spread across the field so they don't stack on one spot
+          const strikeCount = Math.max(1, this.cannons.length)
+          for (const point of this.pickSpreadStrikePoints({ primary: target, count: strikeCount })) {
+            this.orbitalStrikes.push({
+              x: point.x,
+              y: point.y,
+              lockRemainingMs: lockOnMs,
+              isDead: false,
+            })
+          }
         }
       }
     }
@@ -4875,6 +4888,39 @@ export class GameScene extends Phaser.Scene {
     }
     this.orbitalStrikes = this.orbitalStrikes.filter((strike) => strike.isDead === false)
     this.updateOrbitalPulses({ delta })
+  }
+
+  /** the primary target plus extra strike points spread across the field, one per gun */
+  private pickSpreadStrikePoints({
+    primary,
+    count,
+  }: {
+    primary: EnemyUnit
+    count: number
+  }): Array<{ x: number; y: number }> {
+    const points: Array<{ x: number; y: number }> = [{ x: primary.image.x, y: primary.image.y }]
+    if (count <= 1) {
+      return points
+    }
+    const minSeparationSq = 130 ** 2
+    // walk the most-urgent (lowest) invaders, taking ones far enough from the picks so far
+    const candidates = this.enemies
+      .filter((enemy) => enemy.isDead === false && this.isEnemyOnField({ enemy }))
+      .sort((a, b) => b.image.y - a.image.y)
+    for (const enemy of candidates) {
+      if (points.length >= count) {
+        break
+      }
+      const x = enemy.image.x
+      const y = enemy.image.y
+      const isFarEnough = points.every(
+        (point) => (point.x - x) ** 2 + (point.y - y) ** 2 >= minSeparationSq,
+      )
+      if (isFarEnough === true) {
+        points.push({ x, y })
+      }
+    }
+    return points
   }
 
   private spawnOrbitalPulse({ strike }: { strike: OrbitalStrikeUnit }): void {
@@ -6677,13 +6723,10 @@ export class GameScene extends Phaser.Scene {
     for (const cloud of this.cloudImages) {
       cloud.image.setAlpha(CLOUD.activeAlpha).setScale(cloud.baseScale * scaleFactor)
     }
-    // cover is generated per gun: the base deck plus more clouds for every extra gun
-    const desiredCount = Math.min(
-      CLOUD.maxClouds,
-      4 +
-        (this.stats.cloudLevel - 1) * CLOUD.cloudsPerStack +
-        CLOUD.cloudsPerGun * Math.max(0, this.cannons.length - 1),
-    )
+    // cover is generated per gun, same as the other battlefield weapons: each gun lays
+    // down its own clouds (base + per rank), multiplied by how many guns you field
+    const perGun = CLOUD.cloudsPerGun + (this.stats.cloudLevel - 1) * CLOUD.cloudsPerStack
+    const desiredCount = Math.min(CLOUD.maxClouds, Math.max(1, this.cannons.length) * perGun)
     while (this.cloudImages.length < desiredCount) {
       const textureKey = `cloud-${Math.floor(Math.random() * 3)}`
       // random layer so added cover fills out the whole deck, not just one height

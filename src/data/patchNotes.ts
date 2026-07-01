@@ -22,6 +22,25 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Scaling with the Battery',
+    blurb: 'The battlefield weapons now grow with how many guns you field.',
+    notes: [
+      {
+        kind: 'balance',
+        text: 'Every weapon now scales with your gun count — before, some (Strafing Run, Orbital Laser, BFG, Cloud Cover) were fixed no matter how many guns you had, which fell behind as you unlocked more emplacements.',
+      },
+      {
+        kind: 'balance',
+        text: 'Strafing Run now launches one jet per gun (a whole squadron crisscrossing), and Orbital Laser calls one strike per gun, spread across the field instead of stacking on one spot. Their per-hit damage is trimmed to account for the extra volume.',
+      },
+      {
+        kind: 'balance',
+        text: 'The BFG discharge now scales with your gun count (still one big screen-clearing blast, not a wall of flashes), with its base damage cut to keep it fair at a single gun. Cloud Cover likewise lays down clouds per gun.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Wells & Weather',
     notes: [
       {
