@@ -330,6 +330,8 @@ interface PlaneUnit {
   seedAccumulatorMs: number
   /** close air support synergy */
   casAccumulatorMs: number
+  /** vanguard synergy: laser volleys fired ahead of the run */
+  vanguardAccumulatorMs: number
   /** supply drop synergy */
   airdropAccumulatorMs: number
   /** sorties strafe out and back — one pass in each direction */
@@ -2407,6 +2409,10 @@ export class GameScene extends Phaser.Scene {
     if (generation === 0) {
       soundEngine.play({ name: 'flak' })
       this.shakeCamera({ durationMs: 110, intensity: 0.004 })
+      // frost burst synergy: the primary detonation drops a lingering frozen orb
+      if (this.stats.frostBurstLevel > 0) {
+        this.spawnFrostOrb({ x, y })
+      }
     }
     const blastRadius = FLAK.blastRadius + FLAK.blastRadiusPerLevel * (this.stats.flakLevel - 1)
     this.spawnFlakBlast({ x, y, radius: blastRadius })
@@ -3395,6 +3401,37 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
+  /** vanguard synergy: a single laser bolt fired in a heading (from a strafing jet) */
+  private spawnForwardLaserBolt({
+    x,
+    y,
+    angle,
+    damage,
+  }: {
+    x: number
+    y: number
+    angle: number
+    damage: number
+  }): void {
+    const image = this.add
+      .image(x + Math.cos(angle) * BARREL_LENGTH, y + Math.sin(angle) * BARREL_LENGTH, 'laser-bolt')
+      .setRotation(angle)
+      .setDepth(DEPTHS.bullets)
+    this.bullets.push({
+      image,
+      source: 'laser',
+      velocityX: Math.cos(angle) * LASER.speed,
+      velocityY: Math.sin(angle) * LASER.speed,
+      damage,
+      isCrit: false,
+      pierceLeft: 1,
+      traveledPx: 0,
+      maxTravelPx: this.stats.range,
+      hitEnemies: new Set(),
+      isDead: false,
+    })
+  }
+
   // ── frozen orb ─────────────────────────────────────────────────────
 
   /** launch a slow spinning orb toward the densest cluster; it sprays icicles as it drifts */
@@ -3485,6 +3522,27 @@ export class GameScene extends Phaser.Scene {
         isDead: false,
       })
     }
+  }
+
+  /** frost burst synergy: a stationary frozen orb that sits and sprays icicles as it fades */
+  private spawnFrostOrb({ x, y }: { x: number; y: number }): void {
+    const level = Math.max(1, this.stats.frozenOrbLevel)
+    const image = this.add.image(x, y, 'frozen-orb').setDepth(DEPTHS.bullets)
+    this.frozenOrbs.push({
+      image,
+      velocityX: 0,
+      velocityY: 0,
+      emitAccumulatorMs: FROZEN_ORB.emitIntervalMs,
+      remainingMs: SYNERGIES.frostburst.lifespanMs,
+      iceDamage:
+        this.stats.damage *
+        weaponDamageMultiplier({ weaponId: 'frozen-orb', level }) *
+        (SYNERGIES.frostburst.iceDamageFactorBase +
+          SYNERGIES.frostburst.iceDamageFactorPerLevel * (this.stats.frostBurstLevel - 1)),
+      iceCount: FROZEN_ORB.iceCountBase + FROZEN_ORB.iceCountPerLevel * (level - 1),
+      spinRad: 0,
+      isDead: false,
+    })
   }
 
   // ── lock down ──────────────────────────────────────────────────────
@@ -3862,6 +3920,29 @@ export class GameScene extends Phaser.Scene {
             }
           }
         }
+        // vanguard synergy: the jet fires laser volleys straight ahead, clearing its path
+        if (this.stats.vanguardLevel > 0) {
+          plane.vanguardAccumulatorMs += delta
+          const fireInterval = Math.max(
+            SYNERGIES.vanguard.minFireIntervalMs,
+            SYNERGIES.vanguard.fireIntervalMsBase -
+              SYNERGIES.vanguard.fireIntervalStepMs * (this.stats.vanguardLevel - 1),
+          )
+          if (plane.vanguardAccumulatorMs >= fireInterval) {
+            plane.vanguardAccumulatorMs = 0
+            const boltDamage =
+              this.stats.damage *
+              weaponDamageMultiplier({ weaponId: 'laser', level: this.stats.laserLevel }) *
+              (SYNERGIES.vanguard.damageFactorBase +
+                SYNERGIES.vanguard.damageFactorPerLevel * (this.stats.vanguardLevel - 1))
+            this.spawnForwardLaserBolt({
+              x: plane.image.x,
+              y: plane.image.y,
+              angle: Math.atan2(plane.velocityY, plane.velocityX),
+              damage: boltDamage,
+            })
+          }
+        }
         // supply drop synergy: the jet parachutes a care package
         if (this.stats.airdropLevel > 0) {
           plane.airdropAccumulatorMs += delta
@@ -4043,6 +4124,7 @@ export class GameScene extends Phaser.Scene {
       trailAccumulatorMs: 0,
       seedAccumulatorMs: 0,
       casAccumulatorMs: 0,
+      vanguardAccumulatorMs: 0,
       airdropAccumulatorMs: 0,
       passesRemaining: 2,
       isDead: false,

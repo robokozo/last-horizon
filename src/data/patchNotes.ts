@@ -22,6 +22,20 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Two New Combos',
+    notes: [
+      {
+        kind: 'new',
+        text: 'New synergy — Vanguard (Strafing Run × Laser Blaster): strafing jets fire laser volleys straight ahead of their run, clearing a path through the swarm.',
+      },
+      {
+        kind: 'new',
+        text: 'New synergy — Frost Burst (Flak Gun × Frozen Orb): every flak detonation drops a frozen orb that lingers where it bursts, spraying chilling icicles for a few seconds.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Smoke Signals',
     notes: [
       {

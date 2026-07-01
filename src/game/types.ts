@@ -99,6 +99,8 @@ export interface RunStats {
   seekerLevel: number
   orbitalSweepLevel: number
   flakCascadeLevel: number
+  vanguardLevel: number
+  frostBurstLevel: number
 }
 
 export type UpgradeRarity = 'common' | 'rare' | 'epic' | 'legendary'

@@ -198,6 +198,8 @@ export const BASE_RUN_STATS: RunStats = {
   seekerLevel: 0,
   orbitalSweepLevel: 0,
   flakCascadeLevel: 0,
+  vanguardLevel: 0,
+  frostBurstLevel: 0,
 }
 
 export const SYNERGIES = {
@@ -221,6 +223,22 @@ export const SYNERGIES = {
   cas: {
     launchIntervalMsBase: 1_800,
     launchIntervalStepMs: 200,
+  },
+  /** strafing run × laser blaster: the jet fires laser volleys ahead of its run */
+  vanguard: {
+    fireIntervalMsBase: 240,
+    fireIntervalStepMs: 26,
+    minFireIntervalMs: 110,
+    /** bolt damage = the run's laser bolt damage × this factor */
+    damageFactorBase: 0.8,
+    damageFactorPerLevel: 0.15,
+  },
+  /** flak × frozen orb: each flak detonation drops a lingering frozen orb */
+  frostburst: {
+    lifespanMs: 2_600,
+    /** the dropped orb's icicle damage = the run's frozen-orb icicle damage × this factor */
+    iceDamageFactorBase: 0.7,
+    iceDamageFactorPerLevel: 0.15,
   },
   /** tesla arc × rail gun: beams leave an ionized line that zaps crossers */
   ion: {

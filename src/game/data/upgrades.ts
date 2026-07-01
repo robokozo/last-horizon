@@ -567,6 +567,34 @@ export const UPGRADE_DEFINITIONS: Array<UpgradeDefinition> = [
     apply: (stats) => ({ ...stats, smokescreenLevel: stats.smokescreenLevel + 1 }),
   },
   {
+    id: 'vanguard',
+    name: 'Vanguard',
+    description:
+      'Synergy: strafing jets fire laser volleys straight ahead of their run, clearing a path through the swarm (stacks: faster, harder-hitting volleys)',
+    rarity: 'epic',
+    category: 'tactic',
+    maxStacks: BASE_MAX_STACKS,
+    requires: [
+      { id: 'airstrike', stacks: 2 },
+      { id: 'laser', stacks: 2 },
+    ],
+    apply: (stats) => ({ ...stats, vanguardLevel: stats.vanguardLevel + 1 }),
+  },
+  {
+    id: 'frostburst',
+    name: 'Frost Burst',
+    description:
+      'Synergy: every flak detonation drops a frozen orb that lingers where it bursts, spraying chilling icicles for a few seconds (stacks: harder-hitting icicles)',
+    rarity: 'epic',
+    category: 'tactic',
+    maxStacks: BASE_MAX_STACKS,
+    requires: [
+      { id: 'flak', stacks: 2 },
+      { id: 'frozen-orb', stacks: 2 },
+    ],
+    apply: (stats) => ({ ...stats, frostBurstLevel: stats.frostBurstLevel + 1 }),
+  },
+  {
     id: 'cryoshells',
     name: 'Cryo Shells',
     description:
