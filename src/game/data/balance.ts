@@ -706,13 +706,13 @@ export const GRAVITON = {
   /** how long each well stays open and pulling */
   durationMsBase: 1_800,
   durationMsPerLevel: 250,
-  /** the well's pull reach = the gun's range × this, so it carries the guns' range (no per-level growth) */
-  radiusRangeFraction: 0.42,
+  /** the well's pull reach = the gun's range × this — a tight vortex, not a wide bubble */
+  radiusRangeFraction: 0.13,
   /** how hard invaders are dragged toward the center (px/sec) — ranks pull harder */
   pullSpeedBase: 75,
   pullSpeedPerLevel: 28,
-  /** the well is a slow projectile fired from a gun — this is how fast it drifts (px/sec) */
-  projectileSpeedPxPerSec: 170,
+  /** the well is a projectile fired from a gun — this is how fast it streaks up-field (px/sec) */
+  projectileSpeedPxPerSec: 520,
 } as const
 
 /** generic consolation cards offered when the real card pool runs dry */

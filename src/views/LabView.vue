@@ -44,9 +44,16 @@ const dummyFormation = ref<SandboxLayout['formation']>('field')
 const dummySpread = ref(100)
 const dummiesMoving = ref(false)
 const isMainGunEnabled = ref(true)
-/** null = invincible; finite dummies die and respawn (for kill-triggered effects) */
-const dummyHp = ref<number | null>(null)
-const DUMMY_HP_OPTIONS: Array<number | null> = [null, 50, 250, 1000]
+/**
+ * One HP control for both live dummies and the benchmark. null = invincible
+ * (live only; finite dummies die and respawn, for kill-triggered effects).
+ */
+const targetHp = ref<number | null>(null)
+const TARGET_HP_OPTIONS: Array<number | null> = [null, 25, 100, 500, 2000]
+/** the benchmark needs a finite target, so ∞ falls back to this when a diagnostic runs */
+const DIAG_HP_FALLBACK = 100
+/** stream formation: uniform dummies (at Enemy HP) vs a seeded mix of real archetypes */
+const streamEnemyMix = ref(false)
 /** 0.5× slow-mo for inspecting visuals, fast-forward for letting DPS converge */
 const SPEED_OPTIONS: Array<number> = [0.5, 1, 2, 5]
 const speedMultiplier = ref(1)
@@ -168,7 +175,11 @@ function startGame(): void {
         spread: dummySpread.value / 100,
         isMoving: dummiesMoving.value,
         isMainGunEnabled: isMainGunEnabled.value,
-        dummyHp: dummyHp.value,
+        dummyHp: targetHp.value,
+        // stream flows enemies in continuously; seed keeps the wave reproducible
+        ...(dummyFormation.value === 'stream'
+          ? { seed: 1, enemyMix: streamEnemyMix.value, mixHpScale: 1 }
+          : {}),
       },
     },
   })
@@ -196,8 +207,13 @@ function toggleMainGun(): void {
   scheduleRestart()
 }
 
-function setDummyHp({ hp }: { hp: number | null }): void {
-  dummyHp.value = hp
+function setTargetHp({ hp }: { hp: number | null }): void {
+  targetHp.value = hp
+  scheduleRestart()
+}
+
+function setStreamEnemyMix({ mixed }: { mixed: boolean }): void {
+  streamEnemyMix.value = mixed
   scheduleRestart()
 }
 
@@ -262,8 +278,6 @@ const DIAG_DURATION_MS = 180_000
 /** watch mode plays each run live, so a shorter window keeps the sweep watchable */
 const WATCH_DURATION_MS = 24_000
 const DIAG_SEED = 1337
-/** target HP the swarm spawns with — set the toughness the weapons are graded against */
-const DIAG_HP_OPTIONS = [25, 100, 500, 2000] as const
 /** the HP values the one-click sweep grades against, back to back */
 const DIAG_HP_SWEEP = [25, 100, 1000] as const
 /** per-cannon weapons (flak, flame, lance, mines, main) scale with this; pick the count to grade at */
@@ -271,7 +285,6 @@ const DIAG_CANNON_OPTIONS = [1, 2, 4, 6] as const
 /** playback speed for watch mode */
 const DIAG_WATCH_SPEEDS = [8, 16, 32] as const
 
-const diagEnemyHp = ref<number>(100)
 const diagCannons = ref<number>(1)
 const diagWatchSpeed = ref<number>(16)
 /** uniform single-HP wave vs a seeded mix of real archetypes */
@@ -327,9 +340,6 @@ const multiSynergyTable = computed(() => {
   }
 })
 
-function setDiagHp({ hp }: { hp: number }): void {
-  diagEnemyHp.value = hp
-}
 function setDiagCannons({ count }: { count: number }): void {
   diagCannons.value = count
 }
@@ -366,7 +376,7 @@ async function runDiagnostic({
   let result: DpsDiagnosticResult | null = null
   try {
     result = await runDpsDiagnostic({
-      enemyHp: diagEnemyHp.value,
+      enemyHp: targetHp.value ?? DIAG_HP_FALLBACK,
       seed: DIAG_SEED,
       durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
       cannonCount: diagCannons.value,
@@ -423,7 +433,7 @@ async function runSynergies({
   let result: SynergyDiagnosticResult | null = null
   try {
     result = await runSynergyDiagnostic({
-      enemyHp: diagEnemyHp.value,
+      enemyHp: targetHp.value ?? DIAG_HP_FALLBACK,
       seed: DIAG_SEED,
       durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
       cannonCount: diagCannons.value,
@@ -542,7 +552,7 @@ function exposeDiagnosticHook(): void {
     cardStacks.value = {}
     await new Promise((resolve) => setTimeout(resolve, 700))
     const result = await runDpsDiagnostic({
-      enemyHp: options.enemyHp ?? diagEnemyHp.value,
+      enemyHp: options.enemyHp ?? targetHp.value ?? DIAG_HP_FALLBACK,
       seed: options.seed ?? DIAG_SEED,
       durationMs: options.durationMs ?? DIAG_DURATION_MS,
       cannonCount: options.cannonCount ?? diagCannons.value,
@@ -560,7 +570,7 @@ function exposeDiagnosticHook(): void {
     cardStacks.value = {}
     await new Promise((resolve) => setTimeout(resolve, 700))
     const result = await runSynergyDiagnostic({
-      enemyHp: options.enemyHp ?? diagEnemyHp.value,
+      enemyHp: options.enemyHp ?? targetHp.value ?? DIAG_HP_FALLBACK,
       seed: options.seed ?? DIAG_SEED,
       durationMs: options.durationMs ?? DIAG_DURATION_MS,
       cannonCount: options.cannonCount ?? diagCannons.value,
@@ -694,7 +704,7 @@ onUnmounted(() => {
             Targets
           </p>
           <button
-            v-for="formation in ['field', 'boss'] as Array<SandboxLayout['formation']>"
+            v-for="formation in ['field', 'boss', 'stream'] as Array<SandboxLayout['formation']>"
             :key="formation"
             type="button"
             class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold capitalize transition"
@@ -705,7 +715,47 @@ onUnmounted(() => {
             "
             @click="setFormation({ formation })"
           >
-            {{ formation === 'field' ? 'Target field' : 'Single boss' }}
+            {{
+              formation === 'field'
+                ? 'Target field'
+                : formation === 'boss'
+                  ? 'Single boss'
+                  : 'Stream'
+            }}
+          </button>
+        </div>
+
+        <div
+          v-if="dummyFormation === 'stream'"
+          class="flex items-center gap-1.5"
+          data-testid="stream-enemy-mix"
+        >
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Enemies
+          </p>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              streamEnemyMix === false
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            @click="streamEnemyMix === true && setStreamEnemyMix({ mixed: false })"
+          >
+            Uniform
+          </button>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
+            :class="
+              streamEnemyMix === true
+                ? 'bg-lime-400 text-slate-950'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            "
+            @click="streamEnemyMix === false && setStreamEnemyMix({ mixed: true })"
+          >
+            Realistic
           </button>
         </div>
 
@@ -769,21 +819,21 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <div class="flex items-center gap-1.5" data-testid="dummy-hp">
+        <div class="flex items-center gap-1.5" data-testid="enemy-hp">
           <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Dummy HP
+            Enemy HP
           </p>
           <button
-            v-for="option in DUMMY_HP_OPTIONS"
+            v-for="option in TARGET_HP_OPTIONS"
             :key="option ?? 'invincible'"
             type="button"
             class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
             :class="
-              dummyHp === option
+              targetHp === option
                 ? 'bg-lime-400 text-slate-950'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             "
-            @click="setDummyHp({ hp: option })"
+            @click="setTargetHp({ hp: option })"
           >
             {{ option === null ? '∞' : option }}
           </button>
@@ -982,26 +1032,11 @@ onUnmounted(() => {
 
       <!-- ── dps diagnostic ───────────────────────────────────────── -->
       <div class="flex flex-col gap-1.5">
-        <div class="flex items-center gap-1.5" data-testid="diag-hp">
-          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Target HP
-          </p>
-          <button
-            v-for="option in DIAG_HP_OPTIONS"
-            :key="option"
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
-            :class="
-              diagEnemyHp === option
-                ? 'bg-lime-400 text-slate-950'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            "
-            :disabled="isDiagnosing === true || diagEnemyMix === true"
-            @click="setDiagHp({ hp: option })"
-          >
-            {{ option }}
-          </button>
-        </div>
+        <p class="text-xs text-slate-500" data-testid="diag-hp-note">
+          Uniform runs grade against
+          <span class="font-semibold text-slate-400">Enemy HP</span> above (∞ →
+          {{ DIAG_HP_FALLBACK }}).
+        </p>
 
         <div class="flex items-center gap-1.5" data-testid="diag-enemy-mix">
           <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
