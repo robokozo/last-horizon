@@ -22,6 +22,16 @@ export interface PatchEntry {
 export const PATCH_NOTES: Array<PatchEntry> = [
   {
     date: '2026-06-24',
+    title: 'Smoke Signals',
+    notes: [
+      {
+        kind: 'fix',
+        text: 'Fixed Smokescreen (Balloon Mines × Cloud Cover) not laying down smoke — the reworked Cloud Cover was filling every cloud slot itself, leaving no room for mine-detonation smoke. Its cover now stops short so smokescreen (and jet seeding) can add their own.',
+      },
+    ],
+  },
+  {
+    date: '2026-06-24',
     title: 'Seeding the Sky',
     notes: [
       {

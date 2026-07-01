@@ -4051,11 +4051,16 @@ export class GameScene extends Phaser.Scene {
 
   /** an extra active cloud — used by cloud seeding and smokescreen mines */
   /** the most active clouds the sky holds — scales with guns and rank (plus synergies) */
-  private cloudCoverCap(): number {
+  /** base cover the seeder weapon builds — scales with guns and rank */
+  private cloudBaseCap(): number {
     const perGun = CLOUD.cloudsPerGun + (this.stats.cloudLevel - 1) * CLOUD.cloudsPerStack
-    const scaled = Math.min(CLOUD.maxClouds, Math.max(1, this.cannons.length) * perGun)
+    return Math.min(CLOUD.maxClouds, Math.max(1, this.cannons.length) * perGun)
+  }
+
+  /** the absolute ceiling — base cover plus headroom reserved for synergy clouds (smoke, seeding) */
+  private cloudCoverCap(): number {
     return (
-      scaled +
+      this.cloudBaseCap() +
       SYNERGIES.seeding.extraCloudCapPerLevel * this.stats.seedingLevel +
       SYNERGIES.smokescreen.extraCloudCapPerLevel * this.stats.smokescreenLevel
     )
@@ -4063,8 +4068,8 @@ export class GameScene extends Phaser.Scene {
 
   /** each gun lobs a seeder canister that arcs into the sky and bursts into a cloud */
   private fireCloudSeeder({ cannon }: { cannon: CannonUnit }): boolean {
-    // hold fire once the sky is seeded to capacity
-    if (this.cloudImages.length + this.cloudSeeders.length >= this.cloudCoverCap()) {
+    // stop at the base cover — the synergy headroom is left free for smoke/seeding clouds
+    if (this.cloudImages.length + this.cloudSeeders.length >= this.cloudBaseCap()) {
       return false
     }
     const originX = cannon.x
