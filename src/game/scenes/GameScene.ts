@@ -3424,7 +3424,7 @@ export class GameScene extends Phaser.Scene {
       velocityY: Math.sin(angle) * LASER.speed,
       damage,
       isCrit: false,
-      pierceLeft: 1,
+      pierceLeft: 0,
       traveledPx: 0,
       maxTravelPx: this.stats.range,
       hitEnemies: new Set(),
