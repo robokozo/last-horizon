@@ -52,11 +52,18 @@ const targetHp = ref<number | null>(null)
 const TARGET_HP_OPTIONS: Array<number | null> = [null, 25, 100, 500, 2000]
 /** the benchmark needs a finite target, so ∞ falls back to this when a diagnostic runs */
 const DIAG_HP_FALLBACK = 100
+const diagEnemyHp = computed(() => targetHp.value ?? DIAG_HP_FALLBACK)
 /** stream formation: uniform dummies (at Enemy HP) vs a seeded mix of real archetypes */
 const streamEnemyMix = ref(false)
-/** 0.5× slow-mo for inspecting visuals, fast-forward for letting DPS converge */
-const SPEED_OPTIONS: Array<number> = [0.5, 1, 2, 5]
+/**
+ * One speed control for both live play and diagnostic watch runs: 0.5× slow-mo
+ * for inspecting visuals, high multipliers for letting DPS converge on screen.
+ */
+const SPEED_OPTIONS: Array<number> = [0.5, 1, 2, 5, 16, 32]
 const speedMultiplier = ref(1)
+/** watch runs need to finish inside their deadline, so playback never drops below this */
+const WATCH_SPEED_FLOOR = 8
+const watchPlaybackSpeed = computed(() => Math.max(speedMultiplier.value, WATCH_SPEED_FLOOR))
 /** simulate prestige zoom-out: wider arena, extra gun emplacements */
 const PRESTIGE_OPTIONS: Array<number> = [0, 3, 6, 9]
 const prestigeLevel = ref(0)
@@ -282,11 +289,8 @@ const DIAG_SEED = 1337
 const DIAG_HP_SWEEP = [25, 100, 1000] as const
 /** per-cannon weapons (flak, flame, lance, mines, main) scale with this; pick the count to grade at */
 const DIAG_CANNON_OPTIONS = [1, 2, 4, 6] as const
-/** playback speed for watch mode */
-const DIAG_WATCH_SPEEDS = [8, 16, 32] as const
 
 const diagCannons = ref<number>(1)
-const diagWatchSpeed = ref<number>(16)
 /** uniform single-HP wave vs a seeded mix of real archetypes */
 const diagEnemyMix = ref(false)
 /** mixed mode: roster HP multiplier (models later, tankier waves) */
@@ -343,9 +347,6 @@ const multiSynergyTable = computed(() => {
 function setDiagCannons({ count }: { count: number }): void {
   diagCannons.value = count
 }
-function setWatchSpeed({ speed }: { speed: number }): void {
-  diagWatchSpeed.value = speed
-}
 function setEnemyMix({ mixed }: { mixed: boolean }): void {
   diagEnemyMix.value = mixed
 }
@@ -376,7 +377,7 @@ async function runDiagnostic({
   let result: DpsDiagnosticResult | null = null
   try {
     result = await runDpsDiagnostic({
-      enemyHp: targetHp.value ?? DIAG_HP_FALLBACK,
+      enemyHp: diagEnemyHp.value,
       seed: DIAG_SEED,
       durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
       cannonCount: diagCannons.value,
@@ -384,7 +385,7 @@ async function runDiagnostic({
       enemyMix: diagEnemyMix.value,
       mixHpScale: diagMixScale.value,
       mode,
-      watchSpeed: diagWatchSpeed.value,
+      watchSpeed: watchPlaybackSpeed.value,
       onProgress: ({ done, total, label }) => {
         diagStatus.value = `${label} (${done}/${total})`
       },
@@ -433,7 +434,7 @@ async function runSynergies({
   let result: SynergyDiagnosticResult | null = null
   try {
     result = await runSynergyDiagnostic({
-      enemyHp: targetHp.value ?? DIAG_HP_FALLBACK,
+      enemyHp: diagEnemyHp.value,
       seed: DIAG_SEED,
       durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
       cannonCount: diagCannons.value,
@@ -441,7 +442,7 @@ async function runSynergies({
       enemyMix: diagEnemyMix.value,
       mixHpScale: diagMixScale.value,
       mode,
-      watchSpeed: diagWatchSpeed.value,
+      watchSpeed: watchPlaybackSpeed.value,
       onProgress: ({ done, total, label }) => {
         diagStatus.value = `${label} (${done}/${total})`
       },
@@ -552,7 +553,7 @@ function exposeDiagnosticHook(): void {
     cardStacks.value = {}
     await new Promise((resolve) => setTimeout(resolve, 700))
     const result = await runDpsDiagnostic({
-      enemyHp: options.enemyHp ?? targetHp.value ?? DIAG_HP_FALLBACK,
+      enemyHp: options.enemyHp ?? diagEnemyHp.value,
       seed: options.seed ?? DIAG_SEED,
       durationMs: options.durationMs ?? DIAG_DURATION_MS,
       cannonCount: options.cannonCount ?? diagCannons.value,
@@ -560,7 +561,7 @@ function exposeDiagnosticHook(): void {
       enemyMix: options.enemyMix ?? diagEnemyMix.value,
       mixHpScale: options.mixHpScale ?? diagMixScale.value,
       mode: options.mode ?? 'fast',
-      watchSpeed: options.watchSpeed ?? diagWatchSpeed.value,
+      watchSpeed: options.watchSpeed ?? watchPlaybackSpeed.value,
     })
     diagRows.value = result.rows
     return result
@@ -570,7 +571,7 @@ function exposeDiagnosticHook(): void {
     cardStacks.value = {}
     await new Promise((resolve) => setTimeout(resolve, 700))
     const result = await runSynergyDiagnostic({
-      enemyHp: options.enemyHp ?? targetHp.value ?? DIAG_HP_FALLBACK,
+      enemyHp: options.enemyHp ?? diagEnemyHp.value,
       seed: options.seed ?? DIAG_SEED,
       durationMs: options.durationMs ?? DIAG_DURATION_MS,
       cannonCount: options.cannonCount ?? diagCannons.value,
@@ -578,7 +579,7 @@ function exposeDiagnosticHook(): void {
       enemyMix: options.enemyMix ?? diagEnemyMix.value,
       mixHpScale: options.mixHpScale ?? diagMixScale.value,
       mode: options.mode ?? 'fast',
-      watchSpeed: options.watchSpeed ?? diagWatchSpeed.value,
+      watchSpeed: options.watchSpeed ?? watchPlaybackSpeed.value,
     })
     synergyRows.value = result.rows
     return result
@@ -833,6 +834,7 @@ onUnmounted(() => {
                 ? 'bg-lime-400 text-slate-950'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             "
+            :disabled="isDiagnosing === true"
             @click="setTargetHp({ hp: option })"
           >
             {{ option === null ? '∞' : option }}
@@ -893,6 +895,7 @@ onUnmounted(() => {
                 ? 'bg-lime-400 text-slate-950'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             "
+            :disabled="isDiagnosing === true"
             @click="setSpeed({ multiplier: option })"
           >
             ×{{ option }}
@@ -1035,7 +1038,10 @@ onUnmounted(() => {
         <p class="text-xs text-slate-500" data-testid="diag-hp-note">
           Uniform runs grade against
           <span class="font-semibold text-slate-400">Enemy HP</span> above (∞ →
-          {{ DIAG_HP_FALLBACK }}).
+          {{ DIAG_HP_FALLBACK }}); watch runs play at
+          <span class="font-semibold text-slate-400">Speed</span> above (min ×{{
+            WATCH_SPEED_FLOOR
+          }}).
         </p>
 
         <div class="flex items-center gap-1.5" data-testid="diag-enemy-mix">
@@ -1113,27 +1119,6 @@ onUnmounted(() => {
             @click="setDiagCannons({ count: option })"
           >
             {{ option }}
-          </button>
-        </div>
-
-        <div class="flex items-center gap-1.5" data-testid="diag-watch-speed">
-          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Watch ×
-          </p>
-          <button
-            v-for="option in DIAG_WATCH_SPEEDS"
-            :key="option"
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
-            :class="
-              diagWatchSpeed === option
-                ? 'bg-lime-400 text-slate-950'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            "
-            :disabled="isDiagnosing === true"
-            @click="setWatchSpeed({ speed: option })"
-          >
-            ×{{ option }}
           </button>
         </div>
 
