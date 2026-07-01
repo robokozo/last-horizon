@@ -46,6 +46,7 @@ import {
   SANDBOX_MIX,
   type EnemyDefinition,
 } from '@/game/data/enemies'
+import { SOURCE_LABELS } from '@/game/data/sourceLabels'
 import {
   previewEffects,
   weaponBaseIntervalMs,
@@ -6658,8 +6659,9 @@ export class GameScene extends Phaser.Scene {
     this.shakeCamera({ durationMs: 400, intensity: 0.01 })
     this.emitHudSnapshot()
 
+    // include the human-readable label so a saved/exported run recap is unambiguous
     const damageBySource = [...this.damageBySource.entries()]
-      .map(([source, total]) => ({ source, total }))
+      .map(([source, total]) => ({ source, label: SOURCE_LABELS[source] ?? source, total }))
       .sort((a, b) => b.total - a.total)
     const cardStacks = Object.fromEntries(
       [...this.upgradeStacks.entries()].filter(([, stacks]) => stacks > 0),

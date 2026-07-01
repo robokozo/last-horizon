@@ -158,7 +158,7 @@ export interface RunResult {
   elapsedMs: number
   stardustEarned: number
   /** per-weapon damage totals for the run summary, sorted descending */
-  damageBySource: Array<{ source: string; total: number }>
+  damageBySource: Array<{ source: string; label: string; total: number }>
   /** the run's final card tiers by upgrade id (weapons + tactics that were picked) */
   cardStacks: Record<string, number>
 }
