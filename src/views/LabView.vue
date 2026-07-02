@@ -176,6 +176,7 @@ function startGame(): void {
         isMainGunEnabled: cannonOverride.value !== 0,
         dummyHp: targetHp.value,
         // stream-only fields; the engine ignores them for field/boss
+        seed: streamSeed.value,
         enemyMix: enemyMix.value,
         mixHpScale: enemyMixScale.value,
       },
@@ -263,19 +264,31 @@ function resetAll(): void {
 
 const DIAG_TIERS = [1, 2, 3, 4, 5]
 const DIAG_DURATION_MS = 180_000
-/** watch mode plays each run live, so a shorter window keeps the sweep watchable */
-const WATCH_DURATION_MS = 24_000
-const DIAG_SEED = 1337
+/** shared RNG seed — the live stream and every diagnostic face the identical wave */
+const streamSeed = ref(1337)
+
+function onSeedInput(event: Event): void {
+  const value = Number((event.target as HTMLInputElement).value)
+  if (Number.isFinite(value) === false) {
+    return
+  }
+  streamSeed.value = Math.floor(value)
+  scheduleRestart()
+}
+
+function randomizeSeed(): void {
+  streamSeed.value = Math.floor(Math.random() * 1_000_000)
+  scheduleRestart()
+}
 /** the HP values the one-click sweep grades against, back to back */
 const DIAG_HP_SWEEP = [25, 100, 1000] as const
-/** uniform single-HP wave vs a seeded mix of real archetypes — live stream and diagnostics share it */
+/** dummies (identical, fixed Enemy HP) vs invaders (seeded mix of real archetypes at their own HP) */
 const enemyMix = ref(false)
-/** mixed mode: roster HP multiplier (models later, tankier waves) */
+/** invaders mode: roster HP multiplier (models later, tankier waves) */
 const enemyMixScale = ref<number>(1)
 const DIAG_MIX_SCALES = [1, 4, 16] as const
 const isDiagnosing = ref(false)
 const diagStatus = ref('')
-const diagWatchLabel = ref('')
 const diagRows = ref<Array<DpsRow>>([])
 const synergyRows = ref<Array<SynergyRow>>([])
 /** one entry per swept HP, in DIAG_HP_SWEEP order — drives the stacked-column tables */
@@ -330,12 +343,8 @@ function setMixScale({ scale }: { scale: number }): void {
   scheduleRestart()
 }
 
-/** shared driver for the weapon sweep — fast (silent, instant) or watch (live, fast playback) */
-async function runDiagnostic({
-  mode,
-}: {
-  mode: 'fast' | 'watch'
-}): Promise<DpsDiagnosticResult | null> {
+/** silent, fast-forwarded weapon sweep — watch a build yourself via the Stream formation */
+async function runDiagnostic(): Promise<DpsDiagnosticResult | null> {
   if (isDiagnosing.value === true) {
     return null
   }
@@ -345,7 +354,6 @@ async function runDiagnostic({
   multiWeaponResults.value = []
   multiSynergyResults.value = []
   diagStatus.value = 'Warming up…'
-  diagWatchLabel.value = ''
   treePreset.value = 'none'
   cardStacks.value = {}
   await new Promise((resolve) => setTimeout(resolve, 600))
@@ -354,19 +362,15 @@ async function runDiagnostic({
   try {
     result = await runDpsDiagnostic({
       enemyHp: diagEnemyHp.value,
-      seed: DIAG_SEED,
-      durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
+      seed: streamSeed.value,
+      durationMs: DIAG_DURATION_MS,
       cannonCount: diagCannons.value,
       tiers: DIAG_TIERS,
       enemyMix: enemyMix.value,
       mixHpScale: enemyMixScale.value,
-      mode,
-      watchSpeed: watchPlaybackSpeed.value,
+      mode: 'fast',
       onProgress: ({ done, total, label }) => {
         diagStatus.value = `${label} (${done}/${total})`
-      },
-      onMeasureStart: ({ name, tier, mainGunFiring }) => {
-        diagWatchLabel.value = `${name} ★${tier}${mainGunFiring === true ? '' : ' · main cannon silenced'}`
       },
     })
     diagRows.value = result.rows
@@ -381,18 +385,13 @@ async function runDiagnostic({
     diagStatus.value = `Failed — ${String(error)}`
   } finally {
     isDiagnosing.value = false
-    diagWatchLabel.value = ''
     cardStacks.value = {}
     restartNow()
   }
   return result
 }
 
-async function runSynergies({
-  mode,
-}: {
-  mode: 'fast' | 'watch'
-}): Promise<SynergyDiagnosticResult | null> {
+async function runSynergies(): Promise<SynergyDiagnosticResult | null> {
   if (isDiagnosing.value === true) {
     return null
   }
@@ -402,7 +401,6 @@ async function runSynergies({
   multiWeaponResults.value = []
   multiSynergyResults.value = []
   diagStatus.value = 'Warming up…'
-  diagWatchLabel.value = ''
   treePreset.value = 'none'
   cardStacks.value = {}
   await new Promise((resolve) => setTimeout(resolve, 600))
@@ -411,22 +409,15 @@ async function runSynergies({
   try {
     result = await runSynergyDiagnostic({
       enemyHp: diagEnemyHp.value,
-      seed: DIAG_SEED,
-      durationMs: mode === 'watch' ? WATCH_DURATION_MS : DIAG_DURATION_MS,
+      seed: streamSeed.value,
+      durationMs: DIAG_DURATION_MS,
       cannonCount: diagCannons.value,
       tiers: DIAG_TIERS,
       enemyMix: enemyMix.value,
       mixHpScale: enemyMixScale.value,
-      mode,
-      watchSpeed: watchPlaybackSpeed.value,
+      mode: 'fast',
       onProgress: ({ done, total, label }) => {
         diagStatus.value = `${label} (${done}/${total})`
-      },
-      onMeasureStart: ({ name, tier, mainGunFiring }) => {
-        diagWatchLabel.value =
-          tier === 0
-            ? `${name} — baseline (tactic off)`
-            : `${name} ★${tier}${mainGunFiring === true ? '' : ' · main cannon silenced'}`
       },
     })
     synergyRows.value = result.rows
@@ -441,7 +432,6 @@ async function runSynergies({
     diagStatus.value = `Failed — ${String(error)}`
   } finally {
     isDiagnosing.value = false
-    diagWatchLabel.value = ''
     cardStacks.value = {}
     restartNow()
   }
@@ -469,7 +459,7 @@ async function runHpSweep({ kind }: { kind: 'weapons' | 'synergies' }): Promise<
       const enemyHp = DIAG_HP_SWEEP[index]
       const shared = {
         enemyHp,
-        seed: DIAG_SEED,
+        seed: streamSeed.value,
         durationMs: DIAG_DURATION_MS,
         cannonCount: diagCannons.value,
         tiers: DIAG_TIERS,
@@ -490,7 +480,7 @@ async function runHpSweep({ kind }: { kind: 'weapons' | 'synergies' }): Promise<
     }
     diagMeta.value = {
       enemyHp: 0,
-      seed: DIAG_SEED,
+      seed: streamSeed.value,
       durationMs: DIAG_DURATION_MS,
       cannonCount: diagCannons.value,
     }
@@ -530,7 +520,7 @@ function exposeDiagnosticHook(): void {
     await new Promise((resolve) => setTimeout(resolve, 700))
     const result = await runDpsDiagnostic({
       enemyHp: options.enemyHp ?? diagEnemyHp.value,
-      seed: options.seed ?? DIAG_SEED,
+      seed: options.seed ?? streamSeed.value,
       durationMs: options.durationMs ?? DIAG_DURATION_MS,
       cannonCount: options.cannonCount ?? diagCannons.value,
       tiers: options.tiers ?? DIAG_TIERS,
@@ -548,7 +538,7 @@ function exposeDiagnosticHook(): void {
     await new Promise((resolve) => setTimeout(resolve, 700))
     const result = await runSynergyDiagnostic({
       enemyHp: options.enemyHp ?? diagEnemyHp.value,
-      seed: options.seed ?? DIAG_SEED,
+      seed: options.seed ?? streamSeed.value,
       durationMs: options.durationMs ?? DIAG_DURATION_MS,
       cannonCount: options.cannonCount ?? diagCannons.value,
       tiers: options.tiers ?? DIAG_TIERS,
@@ -570,7 +560,7 @@ function exposeDiagnosticHook(): void {
     for (const enemyHp of hps) {
       const shared = {
         enemyHp,
-        seed: options.seed ?? DIAG_SEED,
+        seed: options.seed ?? streamSeed.value,
         durationMs: options.durationMs ?? DIAG_DURATION_MS,
         cannonCount: options.cannonCount ?? diagCannons.value,
         tiers: options.tiers ?? DIAG_TIERS,
@@ -717,7 +707,7 @@ onUnmounted(() => {
             :disabled="isDiagnosing === true"
             @click="enemyMix === true && setEnemyMix({ mixed: false })"
           >
-            Uniform
+            Dummies
           </button>
           <button
             type="button"
@@ -730,13 +720,13 @@ onUnmounted(() => {
             :disabled="isDiagnosing === true"
             @click="enemyMix === false && setEnemyMix({ mixed: true })"
           >
-            Realistic
+            Invaders
           </button>
         </div>
 
         <div v-if="enemyMix === true" class="flex items-center gap-1.5" data-testid="mix-scale">
           <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Mix HP ×
+            Invader HP ×
           </p>
           <button
             v-for="option in DIAG_MIX_SCALES"
@@ -752,6 +742,28 @@ onUnmounted(() => {
             @click="setMixScale({ scale: option })"
           >
             ×{{ option }}
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1.5" data-testid="stream-seed">
+          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Seed
+          </p>
+          <input
+            type="number"
+            :value="streamSeed"
+            class="min-w-0 flex-1 rounded-lg bg-slate-800 px-2 py-1.5 text-xs font-semibold text-slate-300 outline-none focus:ring-1 focus:ring-lime-400"
+            :disabled="isDiagnosing === true"
+            @change="onSeedInput"
+          />
+          <button
+            type="button"
+            class="cursor-pointer rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-700"
+            :disabled="isDiagnosing === true"
+            data-testid="randomize-seed"
+            @click="randomizeSeed()"
+          >
+            🎲 Random
           </button>
         </div>
 
@@ -986,52 +998,32 @@ onUnmounted(() => {
       <div class="flex flex-col gap-1.5">
         <p class="text-xs text-slate-500" data-testid="diag-hp-note">
           Diagnostics grade with the setup above:
-          <span class="font-semibold text-slate-400">Enemy HP</span> (∞ → {{ DIAG_HP_FALLBACK }}),
-          <span class="font-semibold text-slate-400">Enemies</span> mix,
-          <span class="font-semibold text-slate-400">Guns</span> (0 → 1), and
-          <span class="font-semibold text-slate-400">Speed</span> for watch runs (min ×{{
-            WATCH_SPEED_FLOOR
-          }}).
+          <span class="font-semibold text-slate-400">Enemies</span>,
+          <span class="font-semibold text-slate-400">Guns</span> (0 → 1), and the
+          <span class="font-semibold text-slate-400">Seed</span> — plus
+          <span class="font-semibold text-slate-400">Enemy HP</span> (∞ → {{ DIAG_HP_FALLBACK }})
+          for dummies; invaders use their own HP × the scale. Watch a build yourself with the Stream
+          formation.
         </p>
 
-        <button
-          type="button"
-          class="cursor-pointer rounded-lg bg-lime-500 px-3 py-2 text-xs font-bold text-slate-950 transition hover:bg-lime-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-          :disabled="isDiagnosing === true"
-          data-testid="run-diagnostic"
-          @click="runDiagnostic({ mode: 'fast' })"
-        >
-          {{
-            isDiagnosing === true ? diagStatus : 'Run DPS diagnostic (every tier · 3 min · seeded)'
-          }}
-        </button>
         <div class="flex gap-1.5">
           <button
             type="button"
-            class="flex-1 cursor-pointer rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-slate-50 transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+            class="flex-1 cursor-pointer rounded-lg bg-lime-500 px-3 py-2 text-xs font-bold text-slate-950 transition hover:bg-lime-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
             :disabled="isDiagnosing === true"
-            data-testid="watch-diagnostic"
-            @click="runDiagnostic({ mode: 'watch' })"
+            data-testid="run-diagnostic"
+            @click="runDiagnostic()"
           >
-            ▶ Watch weapons
+            {{ isDiagnosing === true ? diagStatus : 'Run DPS · weapons' }}
           </button>
           <button
             type="button"
             class="flex-1 cursor-pointer rounded-lg bg-fuchsia-600 px-3 py-2 text-xs font-bold text-slate-50 transition hover:bg-fuchsia-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
             :disabled="isDiagnosing === true"
             data-testid="run-synergies"
-            @click="runSynergies({ mode: 'fast' })"
+            @click="runSynergies()"
           >
-            Synergies
-          </button>
-          <button
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg bg-fuchsia-800 px-3 py-2 text-xs font-bold text-slate-50 transition hover:bg-fuchsia-700 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-            :disabled="isDiagnosing === true"
-            data-testid="watch-synergies"
-            @click="runSynergies({ mode: 'watch' })"
-          >
-            ▶ Watch
+            Run DPS · synergies
           </button>
         </div>
         <div class="flex gap-1.5">
@@ -1243,13 +1235,6 @@ onUnmounted(() => {
       >
         ☰ Controls
       </button>
-      <div
-        v-if="diagWatchLabel !== ''"
-        class="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-sky-500/50 bg-slate-950/85 px-4 py-1.5 text-sm font-bold text-sky-200 shadow-lg"
-        data-testid="watch-label"
-      >
-        Now testing: {{ diagWatchLabel }}
-      </div>
     </div>
 
     <div
