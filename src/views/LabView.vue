@@ -22,9 +22,9 @@ import {
 import { gameEventBus } from '@/game/eventBus'
 import { soundEngine } from '@/game/sound'
 import type { SandboxLayout, SandboxStatsEntry } from '@/game/types'
-import { PERKS, applyPrestige, buildStartingStats } from '@/skills/skillTree'
+import { PERKS, buildStartingStats } from '@/skills/skillTree'
 
-type TreePreset = 'none' | 'legendary' | 'full'
+type TreePreset = 'none' | 'full'
 
 const gameContainer = ref<HTMLDivElement | null>(null)
 // the control panel docks beside the canvas on desktop, but collapses into a
@@ -61,30 +61,16 @@ const speedMultiplier = ref(1)
 /** watch runs need to finish inside their deadline, so playback never drops below this */
 const WATCH_SPEED_FLOOR = 8
 const watchPlaybackSpeed = computed(() => Math.max(speedMultiplier.value, WATCH_SPEED_FLOOR))
-/** simulate prestige zoom-out: wider arena, extra gun emplacements */
-const PRESTIGE_OPTIONS: Array<number> = [0, 3, 6, 9]
-const prestigeLevel = ref(0)
-
-function setPrestige({ level }: { level: number }): void {
-  prestigeLevel.value = level
-  scheduleRestart()
-}
-
 /**
- * One guns control: null = the run's natural cannon count, 0 = turrets stand but
- * the main gun is silenced (isolates whatever else is being tested), 1+ forces a
- * count for per-gun balance work. Diagnostics grade at this too (auto/0 → 1).
+ * One guns control: the cannon count, where 0 keeps the turrets standing but
+ * silences the main gun (isolates whatever else is being tested). Diagnostics
+ * grade at this too (0 → 1).
  */
-const CANNON_OPTIONS: Array<number | null> = [null, 0, 1, 2, 4, 6]
-const cannonOverride = ref<number | null>(null)
-const diagCannons = computed(() => {
-  if (cannonOverride.value === null || cannonOverride.value === 0) {
-    return 1
-  }
-  return cannonOverride.value
-})
+const CANNON_OPTIONS: Array<number> = [0, 1, 2, 4, 6]
+const cannonOverride = ref<number>(1)
+const diagCannons = computed(() => Math.max(1, cannonOverride.value))
 
-function setCannons({ count }: { count: number | null }): void {
+function setCannons({ count }: { count: number }): void {
   cannonOverride.value = count
   scheduleRestart()
 }
@@ -111,7 +97,6 @@ const allPerkRanks = (filter: (perk: (typeof PERKS)[number]) => boolean): Array<
 
 const PRESET_NODE_IDS: Record<TreePreset, Array<string>> = {
   none: [],
-  legendary: allPerkRanks((perk) => perk.rarity === 'legendary' && perk.special !== 'prestige'),
   full: allPerkRanks((perk) => perk.special !== 'prestige'),
 }
 
@@ -177,14 +162,11 @@ function startGame(): void {
     parent: gameContainer.value,
     sceneData: {
       startingStats: {
-        ...applyPrestige({ stats: buildSandboxStats(), prestigeLevel: prestigeLevel.value }),
-        ...(cannonOverride.value !== null && cannonOverride.value > 0
-          ? { cannonCount: cannonOverride.value }
-          : {}),
+        ...buildSandboxStats(),
+        ...(cannonOverride.value > 0 ? { cannonCount: cannonOverride.value } : {}),
       },
       stardustMultiplier: 1,
       mode: 'sandbox',
-      prestigeLevel: prestigeLevel.value,
       initialCardStacks: { ...cardStacks.value },
       sandboxLayout: {
         formation: dummyFormation.value,
@@ -679,7 +661,7 @@ onUnmounted(() => {
             Perks
           </p>
           <button
-            v-for="preset in ['none', 'legendary', 'full'] as Array<TreePreset>"
+            v-for="preset in ['none', 'full'] as Array<TreePreset>"
             :key="preset"
             type="button"
             class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold capitalize transition"
@@ -830,7 +812,7 @@ onUnmounted(() => {
           </p>
           <button
             v-for="option in CANNON_OPTIONS"
-            :key="option ?? 'auto'"
+            :key="option"
             type="button"
             class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
             :class="
@@ -841,32 +823,12 @@ onUnmounted(() => {
             :disabled="isDiagnosing === true"
             @click="setCannons({ count: option })"
           >
-            {{ option ?? 'auto' }}
+            {{ option }}
           </button>
         </div>
         <p v-if="cannonOverride === 0" class="text-xs text-slate-500" data-testid="guns-zero-note">
           0 keeps the turrets standing but silences the main gun — other weapons still fire.
         </p>
-
-        <div class="flex items-center gap-1.5" data-testid="sim-prestige">
-          <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
-            Prestige
-          </p>
-          <button
-            v-for="option in PRESTIGE_OPTIONS"
-            :key="option"
-            type="button"
-            class="flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-semibold transition"
-            :class="
-              prestigeLevel === option
-                ? 'bg-lime-400 text-slate-950'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            "
-            @click="setPrestige({ level: option })"
-          >
-            ⟴{{ option }}
-          </button>
-        </div>
 
         <div class="flex items-center gap-1.5" data-testid="sim-speed">
           <p class="w-16 shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -1026,7 +988,7 @@ onUnmounted(() => {
           Diagnostics grade with the setup above:
           <span class="font-semibold text-slate-400">Enemy HP</span> (∞ → {{ DIAG_HP_FALLBACK }}),
           <span class="font-semibold text-slate-400">Enemies</span> mix,
-          <span class="font-semibold text-slate-400">Guns</span> (auto/0 → 1), and
+          <span class="font-semibold text-slate-400">Guns</span> (0 → 1), and
           <span class="font-semibold text-slate-400">Speed</span> for watch runs (min ×{{
             WATCH_SPEED_FLOOR
           }}).
